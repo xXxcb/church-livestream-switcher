@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AppleCreek Livestream Switcher
  * Description: Automatically switches a YouTube embed between LIVE, UPCOMING ("Starting soon"), and a fallback playlist, based on schedule windows. Includes schedule import/export JSON.
- * Version: 1.2.2
+ * Version: 1.3.0
  * Author: Carlos Burke
  * Author URI: https://xanderstudios.pro
  * Author Email: hello@xanderstudios.pro
@@ -22,6 +22,7 @@ class Church_Livestream_Switcher {
     add_action('admin_menu', [__CLASS__, 'admin_menu']);
     add_action('admin_init', [__CLASS__, 'register_settings']);
     add_shortcode('church_livestream', [__CLASS__, 'shortcode']);
+    add_shortcode('church_livestream_chat', [__CLASS__, 'shortcode_chat']);
     add_action('rest_api_init', [__CLASS__, 'register_rest']);
   }
 
@@ -797,6 +798,89 @@ class Church_Livestream_Switcher {
               attachEndedFallbackHandler();
             } catch (e) {
               if (playlistSrc && frame.src !== playlistSrc) frame.src = playlistSrc;
+            }
+          }
+
+          refresh();
+          if (POLL_SECONDS && POLL_SECONDS > 0) {
+            setInterval(refresh, POLL_SECONDS * 1000);
+          }
+        })();
+      </script>
+    <?php
+    return ob_get_clean();
+  }
+
+  public static function shortcode_chat($atts) {
+    $s = self::apply_low_quota_profile(self::get_settings());
+    $poll = intval($s['poll_interval_seconds']);
+    $enabled = !empty($s['enabled']);
+
+    $height = isset($atts['height']) ? max(240, intval($atts['height'])) : 600;
+    $offlineMessage = isset($atts['offline_message']) ? sanitize_text_field($atts['offline_message']) : 'Live chat is available when the stream is live.';
+
+    $embedDomain = wp_parse_url(home_url(), PHP_URL_HOST);
+    if (!$embedDomain && isset($_SERVER['HTTP_HOST'])) {
+      $embedDomain = preg_replace('/:\d+$/', '', sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST'])));
+    }
+    if (!$embedDomain) $embedDomain = 'localhost';
+
+    $uid = function_exists('wp_unique_id') ? wp_unique_id('cls-chat-') : uniqid('cls-chat-', true);
+    $frameId = $uid . '-frame';
+    $offlineId = $uid . '-offline';
+
+    ob_start(); ?>
+      <div id="<?php echo esc_attr($uid); ?>" style="width:100%;max-width:100%;">
+        <iframe
+          id="<?php echo esc_attr($frameId); ?>"
+          style="width:100%;height:<?php echo esc_attr($height); ?>px;border:0;display:none;"
+          src="about:blank"
+          loading="lazy"
+          frameborder="0"></iframe>
+        <div id="<?php echo esc_attr($offlineId); ?>" style="height:<?php echo esc_attr($height); ?>px;border:1px solid #dcdcde;display:flex;align-items:center;justify-content:center;padding:16px;text-align:center;">
+          <?php echo esc_html($offlineMessage); ?>
+        </div>
+      </div>
+
+      <script>
+        (function(){
+          const SWITCHING_ENABLED = <?php echo wp_json_encode($enabled); ?>;
+          const POLL_SECONDS = <?php echo wp_json_encode($poll); ?>;
+          const EMBED_DOMAIN = <?php echo wp_json_encode($embedDomain); ?>;
+          const frame = document.getElementById(<?php echo wp_json_encode($frameId); ?>);
+          const offline = document.getElementById(<?php echo wp_json_encode($offlineId); ?>);
+
+          if (!frame || !offline) return;
+
+          function showOffline() {
+            if (frame.style.display !== 'none') frame.style.display = 'none';
+            if (offline.style.display !== 'flex') offline.style.display = 'flex';
+            if (frame.src !== 'about:blank') frame.src = 'about:blank';
+          }
+
+          function showChat(videoId) {
+            const nextSrc = `https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}&embed_domain=${encodeURIComponent(EMBED_DOMAIN)}`;
+            if (frame.src !== nextSrc) frame.src = nextSrc;
+            if (frame.style.display !== 'block') frame.style.display = 'block';
+            if (offline.style.display !== 'none') offline.style.display = 'none';
+          }
+
+          async function refresh() {
+            if (!SWITCHING_ENABLED) {
+              showOffline();
+              return;
+            }
+
+            try {
+              const res = await fetch('<?php echo esc_url_raw(rest_url('church-live/v1/status')); ?>', { cache: 'no-store' });
+              const data = await res.json();
+              if (data && data.inWindow && (data.mode === 'live_video' || data.mode === 'upcoming_video') && data.videoId) {
+                showChat(data.videoId);
+              } else {
+                showOffline();
+              }
+            } catch (e) {
+              showOffline();
             }
           }
 

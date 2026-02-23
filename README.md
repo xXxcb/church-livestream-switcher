@@ -16,6 +16,7 @@ The switch is controlled by schedule windows so API checks only happen when need
 - Supports public and unlisted embeddable streams
 - Detects live and upcoming from your channel uploads
 - Fallback to playlist when no live/upcoming stream is found
+- Separate shortcode for YouTube live chat
 - Auto-return to playlist when a live video ends
 - Built-in caching to reduce quota usage
 - Low Quota Mode for safer defaults
@@ -61,6 +62,30 @@ Frontend then switches iframe source:
 5. Place shortcode on a page:
    - `[church_livestream]`
    - Optional: `[church_livestream height="480"]`
+   - Chat: `[church_livestream_chat]`
+   - Optional chat attrs: `[church_livestream_chat height="600" offline_message="Chat is available during live services."]`
+
+## Shortcodes
+
+### Video
+
+- `[church_livestream]`
+- Optional:
+  - `height` (pixels, default `480`)
+
+### Live Chat
+
+- `[church_livestream_chat]`
+- Optional:
+  - `height` (pixels, minimum `240`, default `600`)
+  - `offline_message` (text shown when no live/upcoming stream is active)
+
+Chat behavior:
+
+- Uses the same status endpoint and polling interval as the video switcher
+- Shows chat for `live_video` and `upcoming_video`
+- Shows offline message outside window / when not live / when plugin is disabled
+- Makes no status fetch calls when global `Plugin enabled` is off
 
 ## Settings Reference
 
@@ -265,4 +290,3 @@ Check:
 ## Version
 
 Current plugin header version: `1.2.2`
-
