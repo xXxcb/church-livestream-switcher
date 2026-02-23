@@ -21,8 +21,10 @@ The switch is controlled by schedule windows so API checks only happen when need
 - Built-in caching to reduce quota usage
 - Low Quota Mode for safer defaults
 - Global plugin enable/disable switch (no API calls when disabled)
-- Tabbed admin settings (General, Options, Scheduling, Live Chat)
+- Tabbed admin settings (General, Options, Player Appearance, Scheduling, Live Chat)
 - Chat visibility toggle for upcoming streams
+- Extensive player appearance and YouTube embed parameter controls
+- Advanced custom embed query parameter override
 - REST status endpoint for frontend switching and diagnostics
 
 ## How It Works
@@ -73,7 +75,7 @@ Frontend then switches iframe source:
 
 - `[church_livestream]`
 - Optional:
-  - `height` (pixels, default `480`)
+  - `height` (pixels, overrides Player Appearance fixed height)
 
 ### Live Chat
 
@@ -90,11 +92,18 @@ Chat behavior:
 - Shows offline message outside window / when not live / when plugin is disabled
 - Makes no status fetch calls when global `Plugin enabled` is off
 
+Video appearance behavior:
+
+- The new `Player Appearance` tab controls wrapper styling + embed parameters.
+- A shortcode `height` attribute, when set, overrides the fixed-height setting.
+- Inner YouTube UI (inside iframe) is still controlled by YouTube and cannot be fully re-skinned.
+
 ## Settings Reference
 
 - Tabs:
   - `General`: global plugin state and YouTube identifiers
   - `Options`: quota/performance controls
+  - `Player Appearance`: iframe/container style + YouTube embed params
   - `Scheduling`: weekly windows, one-time events, import/export
   - `Live Chat`: chat-specific behavior
 
@@ -137,6 +146,23 @@ Chat behavior:
 - `Show chat for upcoming`
   - When enabled, chat appears for `upcoming_video`.
   - When disabled, chat appears only for `live_video`.
+
+- `Player Appearance` tab
+  - Container/frame style:
+    - `Player max width`
+    - `Aspect ratio`
+    - `Fixed height (px)` (`0` keeps responsive ratio mode)
+    - `Border radius`, `background`, `box shadow`
+    - Wrapper class and iframe class hooks
+    - Iframe title, loading mode, referrer policy, allow permissions, allowfullscreen
+  - YouTube playback/embed controls:
+    - `controls`, `autoplay` (live + playlist separately), `mute` (live + playlist separately)
+    - `loop`, `rel`, `fs`, `modestbranding`, `disablekb`, `playsinline`
+    - `iv_load_policy`, `cc_load_policy`, `color`
+    - `start` seconds, `end` seconds
+    - `hl`, `cc_lang_pref`
+    - `origin` mode (`auto`, `off`, `custom`) + custom origin URL
+    - `Advanced custom query params` for additional/override URL params
 
 - `Weekly Schedule Windows`
   - Day + start + end.
@@ -302,4 +328,4 @@ Check:
 
 ## Version
 
-Current plugin header version: `1.4.0`
+Current plugin header version: `1.5.0`

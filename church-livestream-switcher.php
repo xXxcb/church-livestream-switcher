@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AppleCreek Livestream Switcher
  * Description: Automatically switches a YouTube embed between LIVE, UPCOMING ("Starting soon"), and a fallback playlist, based on schedule windows. Includes schedule import/export JSON.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Author: Carlos Burke
  * Author URI: https://xanderstudios.pro
  * Author Email: hello@xanderstudios.pro
@@ -39,6 +39,40 @@ class Church_Livestream_Switcher {
       'uploads_cache_ttl_seconds' => 86400,
       'low_quota_mode' => 0,
       'chat_show_upcoming' => 1,
+      'player_max_width' => '100%',
+      'player_aspect_ratio' => '16:9',
+      'player_fixed_height_px' => 0,
+      'player_border_radius_px' => 0,
+      'player_box_shadow' => '',
+      'player_background' => '#000000',
+      'player_wrapper_class' => '',
+      'player_iframe_class' => '',
+      'player_frame_title' => 'YouTube livestream player',
+      'player_loading' => 'eager',
+      'player_referrerpolicy' => 'strict-origin-when-cross-origin',
+      'player_allow' => 'autoplay; encrypted-media; picture-in-picture; fullscreen',
+      'player_allowfullscreen' => 1,
+      'player_controls' => 1,
+      'player_autoplay_live' => 1,
+      'player_autoplay_playlist' => 0,
+      'player_mute_live' => 1,
+      'player_mute_playlist' => 0,
+      'player_loop' => 0,
+      'player_rel' => 0,
+      'player_fs' => 1,
+      'player_modestbranding' => 1,
+      'player_disablekb' => 0,
+      'player_iv_load_policy' => 3,
+      'player_cc_load_policy' => 0,
+      'player_color' => 'red',
+      'player_playsinline' => 1,
+      'player_start_seconds' => 0,
+      'player_end_seconds' => 0,
+      'player_hl' => '',
+      'player_cc_lang_pref' => '',
+      'player_origin_mode' => 'auto',
+      'player_origin_custom' => '',
+      'player_custom_params' => '',
       'schedule' => [],
       'one_time_events' => [],
       'import_json' => '',
@@ -73,6 +107,45 @@ class Church_Livestream_Switcher {
     $out['uploads_cache_ttl_seconds'] = isset($input['uploads_cache_ttl_seconds']) ? max(3600, intval($input['uploads_cache_ttl_seconds'])) : $d['uploads_cache_ttl_seconds'];
     $out['low_quota_mode'] = !empty($input['low_quota_mode']) ? 1 : 0;
     $out['chat_show_upcoming'] = !empty($input['chat_show_upcoming']) ? 1 : 0;
+    $out['player_max_width'] = isset($input['player_max_width']) ? self::sanitize_text_or_default($input['player_max_width'], $d['player_max_width']) : $d['player_max_width'];
+    $out['player_aspect_ratio'] = isset($input['player_aspect_ratio']) ? self::sanitize_aspect_ratio($input['player_aspect_ratio'], $d['player_aspect_ratio']) : $d['player_aspect_ratio'];
+    $out['player_fixed_height_px'] = isset($input['player_fixed_height_px']) ? max(0, min(2160, intval($input['player_fixed_height_px']))) : $d['player_fixed_height_px'];
+    $out['player_border_radius_px'] = isset($input['player_border_radius_px']) ? max(0, min(200, intval($input['player_border_radius_px']))) : $d['player_border_radius_px'];
+    $out['player_box_shadow'] = isset($input['player_box_shadow']) ? sanitize_text_field($input['player_box_shadow']) : $d['player_box_shadow'];
+    $out['player_background'] = isset($input['player_background']) ? self::sanitize_hex_or_default($input['player_background'], $d['player_background']) : $d['player_background'];
+    $out['player_wrapper_class'] = isset($input['player_wrapper_class']) ? self::sanitize_class_list($input['player_wrapper_class']) : $d['player_wrapper_class'];
+    $out['player_iframe_class'] = isset($input['player_iframe_class']) ? self::sanitize_class_list($input['player_iframe_class']) : $d['player_iframe_class'];
+    $out['player_frame_title'] = isset($input['player_frame_title']) ? self::sanitize_text_or_default($input['player_frame_title'], $d['player_frame_title']) : $d['player_frame_title'];
+    $out['player_loading'] = isset($input['player_loading']) ? self::sanitize_choice($input['player_loading'], ['eager', 'lazy'], $d['player_loading']) : $d['player_loading'];
+    $out['player_referrerpolicy'] = isset($input['player_referrerpolicy']) ? self::sanitize_choice($input['player_referrerpolicy'], self::referrer_policies(), $d['player_referrerpolicy']) : $d['player_referrerpolicy'];
+    $out['player_allow'] = isset($input['player_allow']) ? self::sanitize_text_or_default($input['player_allow'], $d['player_allow']) : $d['player_allow'];
+    $out['player_allowfullscreen'] = !empty($input['player_allowfullscreen']) ? 1 : 0;
+
+    $out['player_controls'] = !empty($input['player_controls']) ? 1 : 0;
+    $out['player_autoplay_live'] = !empty($input['player_autoplay_live']) ? 1 : 0;
+    $out['player_autoplay_playlist'] = !empty($input['player_autoplay_playlist']) ? 1 : 0;
+    $out['player_mute_live'] = !empty($input['player_mute_live']) ? 1 : 0;
+    $out['player_mute_playlist'] = !empty($input['player_mute_playlist']) ? 1 : 0;
+    $out['player_loop'] = !empty($input['player_loop']) ? 1 : 0;
+    $out['player_rel'] = !empty($input['player_rel']) ? 1 : 0;
+    $out['player_fs'] = !empty($input['player_fs']) ? 1 : 0;
+    $out['player_modestbranding'] = !empty($input['player_modestbranding']) ? 1 : 0;
+    $out['player_disablekb'] = !empty($input['player_disablekb']) ? 1 : 0;
+    $out['player_iv_load_policy'] = isset($input['player_iv_load_policy']) && intval($input['player_iv_load_policy']) === 1 ? 1 : 3;
+    $out['player_cc_load_policy'] = !empty($input['player_cc_load_policy']) ? 1 : 0;
+    $out['player_color'] = isset($input['player_color']) ? self::sanitize_choice($input['player_color'], ['red', 'white'], $d['player_color']) : $d['player_color'];
+    $out['player_playsinline'] = !empty($input['player_playsinline']) ? 1 : 0;
+    $out['player_start_seconds'] = isset($input['player_start_seconds']) ? max(0, intval($input['player_start_seconds'])) : $d['player_start_seconds'];
+    $out['player_end_seconds'] = isset($input['player_end_seconds']) ? max(0, intval($input['player_end_seconds'])) : $d['player_end_seconds'];
+    $out['player_hl'] = isset($input['player_hl']) ? self::sanitize_lang_tag($input['player_hl']) : $d['player_hl'];
+    $out['player_cc_lang_pref'] = isset($input['player_cc_lang_pref']) ? self::sanitize_lang_tag($input['player_cc_lang_pref']) : $d['player_cc_lang_pref'];
+    $out['player_origin_mode'] = isset($input['player_origin_mode']) ? self::sanitize_choice($input['player_origin_mode'], ['auto', 'off', 'custom'], $d['player_origin_mode']) : $d['player_origin_mode'];
+    $out['player_origin_custom'] = isset($input['player_origin_custom']) ? self::sanitize_origin_url($input['player_origin_custom']) : $d['player_origin_custom'];
+    $out['player_custom_params'] = isset($input['player_custom_params']) ? self::sanitize_embed_query_string($input['player_custom_params']) : $d['player_custom_params'];
+
+    if ($out['player_origin_mode'] !== 'custom') {
+      $out['player_origin_custom'] = '';
+    }
 
     $import_json = isset($input['import_json']) ? trim((string)$input['import_json']) : '';
     if ($import_json !== '') {
@@ -95,6 +168,101 @@ class Church_Livestream_Switcher {
 
     delete_transient(self::TRANSIENT_KEY);
     return wp_parse_args($out, $d);
+  }
+
+  private static function sanitize_text_or_default($value, $default) {
+    $clean = sanitize_text_field((string) $value);
+    return $clean !== '' ? $clean : $default;
+  }
+
+  private static function sanitize_choice($value, $allowed, $default) {
+    $clean = sanitize_text_field((string) $value);
+    return in_array($clean, $allowed, true) ? $clean : $default;
+  }
+
+  private static function sanitize_hex_or_default($value, $default) {
+    $clean = sanitize_hex_color((string) $value);
+    return $clean ? $clean : $default;
+  }
+
+  private static function sanitize_aspect_ratio($value, $default = '16:9') {
+    $raw = trim((string) $value);
+    if (preg_match('/^(\d{1,3})\s*[:\/]\s*(\d{1,3})$/', $raw, $m)) {
+      $w = intval($m[1]);
+      $h = intval($m[2]);
+      if ($w > 0 && $h > 0) return $w . ':' . $h;
+    }
+    return $default;
+  }
+
+  private static function aspect_ratio_to_padding_percent($ratio) {
+    if (!is_string($ratio) || !preg_match('/^(\d{1,3}):(\d{1,3})$/', trim($ratio), $m)) return 56.25;
+    $w = intval($m[1]);
+    $h = intval($m[2]);
+    if ($w <= 0 || $h <= 0) return 56.25;
+    return round(($h / $w) * 100, 4);
+  }
+
+  private static function sanitize_class_list($value) {
+    $clean = preg_replace('/[^A-Za-z0-9_\-\s]/', '', (string) $value);
+    $clean = preg_replace('/\s+/', ' ', trim((string) $clean));
+    return $clean ?: '';
+  }
+
+  private static function sanitize_lang_tag($value) {
+    $clean = trim((string) $value);
+    if ($clean === '') return '';
+    if (!preg_match('/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/', $clean)) return '';
+    return $clean;
+  }
+
+  private static function referrer_policies() {
+    return [
+      '',
+      'no-referrer',
+      'no-referrer-when-downgrade',
+      'origin',
+      'origin-when-cross-origin',
+      'same-origin',
+      'strict-origin',
+      'strict-origin-when-cross-origin',
+      'unsafe-url',
+    ];
+  }
+
+  private static function sanitize_origin_url($value) {
+    $url = esc_url_raw(trim((string) $value), ['http', 'https']);
+    if (!$url) return '';
+
+    $parts = wp_parse_url($url);
+    if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) return '';
+
+    $origin = strtolower($parts['scheme']) . '://' . strtolower($parts['host']);
+    if (!empty($parts['port'])) $origin .= ':' . intval($parts['port']);
+    return $origin;
+  }
+
+  private static function normalize_home_origin() {
+    return self::sanitize_origin_url(home_url('/'));
+  }
+
+  private static function sanitize_embed_query_string($value) {
+    $raw = ltrim(trim((string) $value), '?&');
+    if ($raw === '') return '';
+
+    $decoded = [];
+    parse_str($raw, $decoded);
+    if (!is_array($decoded)) return '';
+
+    $clean = [];
+    foreach ($decoded as $key => $val) {
+      $k = preg_replace('/[^A-Za-z0-9_\-]/', '', (string) $key);
+      if ($k === '' || is_array($val)) continue;
+      $clean[$k] = sanitize_text_field((string) $val);
+    }
+
+    if (empty($clean)) return '';
+    return http_build_query($clean, '', '&', PHP_QUERY_RFC3986);
   }
 
   private static function sanitize_schedule($schedule) {
@@ -174,6 +342,7 @@ class Church_Livestream_Switcher {
         <h2 class="nav-tab-wrapper" id="cls_settings_tabs">
           <a href="#cls-tab-general" class="nav-tab cls-tab-link nav-tab-active">General</a>
           <a href="#cls-tab-options" class="nav-tab cls-tab-link">Options</a>
+          <a href="#cls-tab-player" class="nav-tab cls-tab-link">Player Appearance</a>
           <a href="#cls-tab-scheduling" class="nav-tab cls-tab-link">Scheduling</a>
           <a href="#cls-tab-live-chat" class="nav-tab cls-tab-link">Live Chat</a>
         </h2>
@@ -271,6 +440,209 @@ class Church_Livestream_Switcher {
               <td>
                 <input id="cls_uploads_ttl" name="<?php echo esc_attr(self::OPT_KEY); ?>[uploads_cache_ttl_seconds]" type="number" min="3600" value="<?php echo esc_attr($s['uploads_cache_ttl_seconds']); ?>" />
                 <p class="description">Caches your channel’s uploads playlist id (default 24h).</p>
+              </td>
+            </tr>
+          </table>
+        </section>
+
+        <section id="cls-tab-player" class="cls-tab-panel">
+          <h2>Container &amp; Frame</h2>
+          <table class="form-table" role="presentation">
+            <tr>
+              <th scope="row"><label for="cls_player_max_width">Player max width</label></th>
+              <td>
+                <input id="cls_player_max_width" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_max_width]" type="text" value="<?php echo esc_attr($s['player_max_width']); ?>" class="regular-text" />
+                <p class="description">Examples: <code>100%</code>, <code>1280px</code>, <code>90vw</code>.</p>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_aspect_ratio">Aspect ratio</label></th>
+              <td>
+                <input id="cls_player_aspect_ratio" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_aspect_ratio]" type="text" value="<?php echo esc_attr($s['player_aspect_ratio']); ?>" class="small-text" />
+                <p class="description">Format <code>width:height</code>, e.g. <code>16:9</code>, <code>4:3</code>.</p>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_fixed_height_px">Fixed height (px)</label></th>
+              <td>
+                <input id="cls_player_fixed_height_px" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_fixed_height_px]" type="number" min="0" max="2160" value="<?php echo esc_attr($s['player_fixed_height_px']); ?>" />
+                <p class="description">Set <code>0</code> for responsive ratio mode. Any positive value forces fixed height.</p>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_border_radius_px">Border radius (px)</label></th>
+              <td><input id="cls_player_border_radius_px" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_border_radius_px]" type="number" min="0" max="200" value="<?php echo esc_attr($s['player_border_radius_px']); ?>" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_background">Background color</label></th>
+              <td><input id="cls_player_background" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_background]" type="text" value="<?php echo esc_attr($s['player_background']); ?>" class="small-text" placeholder="#000000" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_box_shadow">Box shadow</label></th>
+              <td>
+                <input id="cls_player_box_shadow" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_box_shadow]" type="text" value="<?php echo esc_attr($s['player_box_shadow']); ?>" class="regular-text" />
+                <p class="description">Raw CSS value, example: <code>0 10px 40px rgba(0,0,0,.25)</code>.</p>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_wrapper_class">Wrapper CSS class(es)</label></th>
+              <td><input id="cls_player_wrapper_class" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_wrapper_class]" type="text" value="<?php echo esc_attr($s['player_wrapper_class']); ?>" class="regular-text" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_iframe_class">IFrame CSS class(es)</label></th>
+              <td><input id="cls_player_iframe_class" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_iframe_class]" type="text" value="<?php echo esc_attr($s['player_iframe_class']); ?>" class="regular-text" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_frame_title">IFrame title</label></th>
+              <td><input id="cls_player_frame_title" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_frame_title]" type="text" value="<?php echo esc_attr($s['player_frame_title']); ?>" class="regular-text" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_loading">IFrame loading</label></th>
+              <td>
+                <select id="cls_player_loading" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_loading]">
+                  <option value="eager" <?php selected($s['player_loading'], 'eager'); ?>>eager</option>
+                  <option value="lazy" <?php selected($s['player_loading'], 'lazy'); ?>>lazy</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_referrerpolicy">Referrer policy</label></th>
+              <td>
+                <select id="cls_player_referrerpolicy" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_referrerpolicy]">
+                  <?php foreach (self::referrer_policies() as $policy): ?>
+                    <option value="<?php echo esc_attr($policy); ?>" <?php selected($s['player_referrerpolicy'], $policy); ?>>
+                      <?php echo esc_html($policy === '' ? '(none)' : $policy); ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_allow">IFrame allow permissions</label></th>
+              <td><input id="cls_player_allow" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_allow]" type="text" value="<?php echo esc_attr($s['player_allow']); ?>" class="regular-text" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_allowfullscreen">Allow fullscreen attribute</label></th>
+              <td>
+                <label>
+                  <input id="cls_player_allowfullscreen" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_allowfullscreen]" type="checkbox" value="1" <?php checked(!empty($s['player_allowfullscreen'])); ?> />
+                  Output <code>allowfullscreen</code> attribute on iframe.
+                </label>
+              </td>
+            </tr>
+          </table>
+
+          <h2>YouTube Player Parameters</h2>
+          <table class="form-table" role="presentation">
+            <tr>
+              <th scope="row"><label for="cls_player_controls">Show controls</label></th>
+              <td><input id="cls_player_controls" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_controls]" type="checkbox" value="1" <?php checked(!empty($s['player_controls'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_autoplay_live">Autoplay live video</label></th>
+              <td><input id="cls_player_autoplay_live" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_autoplay_live]" type="checkbox" value="1" <?php checked(!empty($s['player_autoplay_live'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_mute_live">Mute live video</label></th>
+              <td><input id="cls_player_mute_live" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_mute_live]" type="checkbox" value="1" <?php checked(!empty($s['player_mute_live'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_autoplay_playlist">Autoplay playlist fallback</label></th>
+              <td><input id="cls_player_autoplay_playlist" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_autoplay_playlist]" type="checkbox" value="1" <?php checked(!empty($s['player_autoplay_playlist'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_mute_playlist">Mute playlist fallback</label></th>
+              <td><input id="cls_player_mute_playlist" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_mute_playlist]" type="checkbox" value="1" <?php checked(!empty($s['player_mute_playlist'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_loop">Loop playback</label></th>
+              <td>
+                <label>
+                  <input id="cls_player_loop" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_loop]" type="checkbox" value="1" <?php checked(!empty($s['player_loop'])); ?> />
+                  Loop playlist and single live embeds.
+                </label>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_rel">Show related videos</label></th>
+              <td><input id="cls_player_rel" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_rel]" type="checkbox" value="1" <?php checked(!empty($s['player_rel'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_fs">Show fullscreen button</label></th>
+              <td><input id="cls_player_fs" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_fs]" type="checkbox" value="1" <?php checked(!empty($s['player_fs'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_modestbranding">Modest branding</label></th>
+              <td><input id="cls_player_modestbranding" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_modestbranding]" type="checkbox" value="1" <?php checked(!empty($s['player_modestbranding'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_disablekb">Disable keyboard shortcuts</label></th>
+              <td><input id="cls_player_disablekb" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_disablekb]" type="checkbox" value="1" <?php checked(!empty($s['player_disablekb'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_playsinline">Plays inline on mobile</label></th>
+              <td><input id="cls_player_playsinline" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_playsinline]" type="checkbox" value="1" <?php checked(!empty($s['player_playsinline'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_iv_load_policy">Annotations / cards policy</label></th>
+              <td>
+                <select id="cls_player_iv_load_policy" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_iv_load_policy]">
+                  <option value="3" <?php selected(intval($s['player_iv_load_policy']), 3); ?>>Hide annotations</option>
+                  <option value="1" <?php selected(intval($s['player_iv_load_policy']), 1); ?>>Show annotations</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_cc_load_policy">Show captions by default</label></th>
+              <td><input id="cls_player_cc_load_policy" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_cc_load_policy]" type="checkbox" value="1" <?php checked(!empty($s['player_cc_load_policy'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_color">Progress bar color</label></th>
+              <td>
+                <select id="cls_player_color" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_color]">
+                  <option value="red" <?php selected($s['player_color'], 'red'); ?>>red</option>
+                  <option value="white" <?php selected($s['player_color'], 'white'); ?>>white</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_start_seconds">Start at seconds</label></th>
+              <td><input id="cls_player_start_seconds" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_start_seconds]" type="number" min="0" value="<?php echo esc_attr($s['player_start_seconds']); ?>" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_end_seconds">End at seconds</label></th>
+              <td><input id="cls_player_end_seconds" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_end_seconds]" type="number" min="0" value="<?php echo esc_attr($s['player_end_seconds']); ?>" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_hl">Player UI language (`hl`)</label></th>
+              <td><input id="cls_player_hl" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_hl]" type="text" value="<?php echo esc_attr($s['player_hl']); ?>" class="small-text" placeholder="en" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_cc_lang_pref">Caption language (`cc_lang_pref`)</label></th>
+              <td><input id="cls_player_cc_lang_pref" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_cc_lang_pref]" type="text" value="<?php echo esc_attr($s['player_cc_lang_pref']); ?>" class="small-text" placeholder="en" /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_origin_mode">Origin parameter mode</label></th>
+              <td>
+                <select id="cls_player_origin_mode" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_origin_mode]">
+                  <option value="auto" <?php selected($s['player_origin_mode'], 'auto'); ?>>Auto (site origin)</option>
+                  <option value="off" <?php selected($s['player_origin_mode'], 'off'); ?>>Off</option>
+                  <option value="custom" <?php selected($s['player_origin_mode'], 'custom'); ?>>Custom</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_origin_custom">Custom origin URL</label></th>
+              <td>
+                <input id="cls_player_origin_custom" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_origin_custom]" type="text" value="<?php echo esc_attr($s['player_origin_custom']); ?>" class="regular-text" placeholder="https://example.com" />
+                <p class="description">Used only when mode is <code>Custom</code>.</p>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_custom_params">Advanced custom query params</label></th>
+              <td>
+                <input id="cls_player_custom_params" name="<?php echo esc_attr(self::OPT_KEY); ?>[player_custom_params]" type="text" value="<?php echo esc_attr($s['player_custom_params']); ?>" class="regular-text" placeholder="vq=hd1080&widget_referrer=https%3A%2F%2Fexample.com" />
+                <p class="description">Optional raw query string appended last (overrides earlier params if keys match).</p>
               </td>
             </tr>
           </table>
@@ -775,34 +1147,170 @@ class Church_Livestream_Switcher {
     $playlistId = $s['playlist_id'];
     $poll = intval($s['poll_interval_seconds']);
     $enabled = !empty($s['enabled']);
+    $atts = shortcode_atts([
+      'height' => 0,
+    ], $atts, 'church_livestream');
 
-    $height = isset($atts['height']) ? intval($atts['height']) : 480;
+    $heightOverride = max(0, intval($atts['height']));
+    $fixedHeight = max(0, intval($s['player_fixed_height_px'] ?? 0));
+    $height = $heightOverride > 0 ? $heightOverride : $fixedHeight;
+
+    $aspectRatio = self::sanitize_aspect_ratio((string) ($s['player_aspect_ratio'] ?? '16:9'), '16:9');
+    $aspectPadding = self::aspect_ratio_to_padding_percent($aspectRatio);
+
+    $maxWidth = sanitize_text_field((string) ($s['player_max_width'] ?? '100%'));
+    if ($maxWidth === '') $maxWidth = '100%';
+
+    $background = self::sanitize_hex_or_default((string) ($s['player_background'] ?? '#000000'), '#000000');
+    $borderRadius = max(0, min(200, intval($s['player_border_radius_px'] ?? 0)));
+    $boxShadow = sanitize_text_field((string) ($s['player_box_shadow'] ?? ''));
+    $wrapperClass = self::sanitize_class_list((string) ($s['player_wrapper_class'] ?? ''));
+    $iframeClass = self::sanitize_class_list((string) ($s['player_iframe_class'] ?? ''));
+
+    $frameTitle = self::sanitize_text_or_default((string) ($s['player_frame_title'] ?? ''), 'YouTube livestream player');
+    $loading = self::sanitize_choice((string) ($s['player_loading'] ?? 'eager'), ['eager', 'lazy'], 'eager');
+    $referrerPolicy = self::sanitize_choice((string) ($s['player_referrerpolicy'] ?? ''), self::referrer_policies(), 'strict-origin-when-cross-origin');
+    $allow = self::sanitize_text_or_default((string) ($s['player_allow'] ?? ''), 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+    $allowFullscreen = !empty($s['player_allowfullscreen']);
+
+    $originMode = self::sanitize_choice((string) ($s['player_origin_mode'] ?? 'auto'), ['auto', 'off', 'custom'], 'auto');
+    $origin = '';
+    if ($originMode === 'auto') {
+      $origin = self::normalize_home_origin();
+    } elseif ($originMode === 'custom') {
+      $origin = self::sanitize_origin_url((string) ($s['player_origin_custom'] ?? ''));
+    }
+
+    $startSeconds = max(0, intval($s['player_start_seconds'] ?? 0));
+    $endSeconds = max(0, intval($s['player_end_seconds'] ?? 0));
+    if ($endSeconds > 0 && $endSeconds <= $startSeconds) $endSeconds = 0;
+
+    $hl = self::sanitize_lang_tag((string) ($s['player_hl'] ?? ''));
+    $ccLangPref = self::sanitize_lang_tag((string) ($s['player_cc_lang_pref'] ?? ''));
+
+    $commonParams = [
+      'controls' => !empty($s['player_controls']) ? '1' : '0',
+      'rel' => !empty($s['player_rel']) ? '1' : '0',
+      'fs' => !empty($s['player_fs']) ? '1' : '0',
+      'modestbranding' => !empty($s['player_modestbranding']) ? '1' : '0',
+      'disablekb' => !empty($s['player_disablekb']) ? '1' : '0',
+      'iv_load_policy' => intval($s['player_iv_load_policy']) === 1 ? '1' : '3',
+      'cc_load_policy' => !empty($s['player_cc_load_policy']) ? '1' : '0',
+      'color' => ((string) ($s['player_color'] ?? '') === 'white') ? 'white' : 'red',
+      'playsinline' => !empty($s['player_playsinline']) ? '1' : '0',
+      'enablejsapi' => '1',
+    ];
+    if ($origin !== '') $commonParams['origin'] = $origin;
+    if ($hl !== '') $commonParams['hl'] = $hl;
+    if ($ccLangPref !== '') $commonParams['cc_lang_pref'] = $ccLangPref;
+
+    $liveParams = $commonParams;
+    $liveParams['autoplay'] = !empty($s['player_autoplay_live']) ? '1' : '0';
+    $liveParams['mute'] = !empty($s['player_mute_live']) ? '1' : '0';
+    if ($startSeconds > 0) $liveParams['start'] = (string) $startSeconds;
+    if ($endSeconds > 0) $liveParams['end'] = (string) $endSeconds;
+
+    $playlistParams = $commonParams;
+    $playlistParams['autoplay'] = !empty($s['player_autoplay_playlist']) ? '1' : '0';
+    $playlistParams['mute'] = !empty($s['player_mute_playlist']) ? '1' : '0';
+
+    $loopEnabled = !empty($s['player_loop']);
+    $customQuery = self::sanitize_embed_query_string((string) ($s['player_custom_params'] ?? ''));
+
+    $wrapperStyles = [
+      'position:relative',
+      'width:100%',
+      'max-width:' . $maxWidth,
+      'margin:0 auto',
+      'background:' . $background,
+    ];
+    if ($height > 0) {
+      $wrapperStyles[] = 'height:' . intval($height) . 'px';
+    } else {
+      $wrapperStyles[] = 'padding-top:' . $aspectPadding . '%';
+    }
+    if ($borderRadius > 0) {
+      $wrapperStyles[] = 'border-radius:' . intval($borderRadius) . 'px';
+      $wrapperStyles[] = 'overflow:hidden';
+    }
+    if ($boxShadow !== '') $wrapperStyles[] = 'box-shadow:' . $boxShadow;
+    $wrapperStyle = implode(';', $wrapperStyles) . ';';
+
+    $frameStyle = 'position:absolute;inset:0;width:100%;height:100%;border:0;';
+    $uid = function_exists('wp_unique_id') ? wp_unique_id('cls-yt-') : uniqid('cls-yt-', true);
+    $frameId = $uid . '-frame';
+    $wrapperClasses = trim('cls-yt-wrap ' . $wrapperClass);
+    $iframeClasses = trim('cls-yt-frame ' . $iframeClass);
 
     ob_start(); ?>
-      <div style="position:relative;padding-top:56.25%;">
+      <div class="<?php echo esc_attr($wrapperClasses); ?>" style="<?php echo esc_attr($wrapperStyle); ?>">
         <iframe
-          id="cls-yt-frame"
-          style="position:absolute;inset:0;width:100%;height:100%;"
-          width="100%"
-          height="<?php echo esc_attr($height); ?>"
-          src=""
+          id="<?php echo esc_attr($frameId); ?>"
+          class="<?php echo esc_attr($iframeClasses); ?>"
+          style="<?php echo esc_attr($frameStyle); ?>"
+          src="about:blank"
+          title="<?php echo esc_attr($frameTitle); ?>"
+          loading="<?php echo esc_attr($loading); ?>"
           frameborder="0"
-          allow="autoplay; encrypted-media; picture-in-picture"
-          allowfullscreen></iframe>
+          allow="<?php echo esc_attr($allow); ?>"
+          <?php if ($referrerPolicy !== ''): ?>referrerpolicy="<?php echo esc_attr($referrerPolicy); ?>"<?php endif; ?>
+          <?php if ($allowFullscreen): ?>allowfullscreen<?php endif; ?>
+        ></iframe>
       </div>
 
       <script>
         (function(){
+          const FRAME_ID = <?php echo wp_json_encode($frameId); ?>;
           const SWITCHING_ENABLED = <?php echo wp_json_encode($enabled); ?>;
           const PLAYLIST_ID = <?php echo wp_json_encode($playlistId); ?>;
           const POLL_SECONDS = <?php echo wp_json_encode($poll); ?>;
+          const LIVE_PARAMS = <?php echo wp_json_encode($liveParams); ?>;
+          const PLAYLIST_PARAMS = <?php echo wp_json_encode($playlistParams); ?>;
+          const LOOP_ENABLED = <?php echo wp_json_encode($loopEnabled); ?>;
+          const CUSTOM_QUERY = <?php echo wp_json_encode($customQuery); ?>;
 
-          const frame = document.getElementById('cls-yt-frame');
+          const frame = document.getElementById(FRAME_ID);
           if (!frame) return;
 
-          const playlistSrc = PLAYLIST_ID
-            ? `https://www.youtube.com/embed/videoseries?list=${encodeURIComponent(PLAYLIST_ID)}&rel=0&enablejsapi=1`
-            : '';
+          const customParams = new URLSearchParams(CUSTOM_QUERY || '');
+
+          function applyParams(params, source) {
+            Object.entries(source || {}).forEach(([k, v]) => {
+              if (v === null || typeof v === 'undefined' || v === '') return;
+              params.set(k, String(v));
+            });
+          }
+
+          function applyCustomParams(params) {
+            customParams.forEach((v, k) => {
+              if (!k) return;
+              params.set(k, v);
+            });
+          }
+
+          function buildSrc(mode, videoId) {
+            if (mode === 'playlist') {
+              if (!PLAYLIST_ID) return '';
+              const params = new URLSearchParams();
+              applyParams(params, PLAYLIST_PARAMS);
+              if (LOOP_ENABLED) params.set('loop', '1');
+              params.set('list', PLAYLIST_ID);
+              applyCustomParams(params);
+              return `https://www.youtube.com/embed/videoseries?${params.toString()}`;
+            }
+
+            if (!videoId) return '';
+            const params = new URLSearchParams();
+            applyParams(params, LIVE_PARAMS);
+            if (LOOP_ENABLED) {
+              params.set('loop', '1');
+              params.set('playlist', videoId);
+            }
+            applyCustomParams(params);
+            return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+          }
+
+          const playlistSrc = buildSrc('playlist');
 
           if (!SWITCHING_ENABLED) {
             if (playlistSrc && frame.src !== playlistSrc) frame.src = playlistSrc;
@@ -866,9 +1374,7 @@ class Church_Livestream_Switcher {
               let nextSrc = playlistSrc;
 
               if (data && data.inWindow && (data.mode === 'live_video' || data.mode === 'upcoming_video') && data.videoId) {
-                nextSrc = `https://www.youtube.com/embed/${encodeURIComponent(data.videoId)}?autoplay=1&mute=1&rel=0&enablejsapi=1`;
-              } else {
-                nextSrc = playlistSrc;
+                nextSrc = buildSrc('video', data.videoId) || playlistSrc;
               }
 
               if (nextSrc && frame.src !== nextSrc) {
