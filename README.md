@@ -21,6 +21,8 @@ The switch is controlled by schedule windows so API checks only happen when need
 - Built-in caching to reduce quota usage
 - Low Quota Mode for safer defaults
 - Global plugin enable/disable switch (no API calls when disabled)
+- Tabbed admin settings (General, Options, Scheduling, Live Chat)
+- Chat visibility toggle for upcoming streams
 - REST status endpoint for frontend switching and diagnostics
 
 ## How It Works
@@ -57,7 +59,7 @@ Frontend then switches iframe source:
 
 1. Put the plugin folder in `wp-content/plugins/church-livestream-switcher`.
 2. Activate **Church Livestream Switcher** in WordPress plugins.
-3. Open **Settings -> Church Livestream**.
+3. Open **Settings -> AC Livestream**.
 4. Configure all required fields.
 5. Place shortcode on a page:
    - `[church_livestream]`
@@ -83,11 +85,18 @@ Frontend then switches iframe source:
 Chat behavior:
 
 - Uses the same status endpoint and polling interval as the video switcher
-- Shows chat for `live_video` and `upcoming_video`
+- Always shows chat for `live_video`
+- Optionally shows chat for `upcoming_video` (controlled by `Show chat for upcoming`)
 - Shows offline message outside window / when not live / when plugin is disabled
 - Makes no status fetch calls when global `Plugin enabled` is off
 
 ## Settings Reference
+
+- Tabs:
+  - `General`: global plugin state and YouTube identifiers
+  - `Options`: quota/performance controls
+  - `Scheduling`: weekly windows, one-time events, import/export
+  - `Live Chat`: chat-specific behavior
 
 - `Plugin enabled`
   - Global on/off switch.
@@ -124,6 +133,10 @@ Chat behavior:
 
 - `Uploads playlist cache TTL (seconds)`
   - How long uploads playlist ID is cached.
+
+- `Show chat for upcoming`
+  - When enabled, chat appears for `upcoming_video`.
+  - When disabled, chat appears only for `live_video`.
 
 - `Weekly Schedule Windows`
   - Day + start + end.
@@ -289,4 +302,4 @@ Check:
 
 ## Version
 
-Current plugin header version: `1.2.2`
+Current plugin header version: `1.4.0`

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AppleCreek Livestream Switcher
  * Description: Automatically switches a YouTube embed between LIVE, UPCOMING ("Starting soon"), and a fallback playlist, based on schedule windows. Includes schedule import/export JSON.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author: Carlos Burke
  * Author URI: https://xanderstudios.pro
  * Author Email: hello@xanderstudios.pro
@@ -38,6 +38,7 @@ class Church_Livestream_Switcher {
       'lookback_count' => 15,
       'uploads_cache_ttl_seconds' => 86400,
       'low_quota_mode' => 0,
+      'chat_show_upcoming' => 1,
       'schedule' => [],
       'one_time_events' => [],
       'import_json' => '',
@@ -71,6 +72,7 @@ class Church_Livestream_Switcher {
     $out['lookback_count'] = isset($input['lookback_count']) ? max(3, min(25, intval($input['lookback_count']))) : $d['lookback_count'];
     $out['uploads_cache_ttl_seconds'] = isset($input['uploads_cache_ttl_seconds']) ? max(3600, intval($input['uploads_cache_ttl_seconds'])) : $d['uploads_cache_ttl_seconds'];
     $out['low_quota_mode'] = !empty($input['low_quota_mode']) ? 1 : 0;
+    $out['chat_show_upcoming'] = !empty($input['chat_show_upcoming']) ? 1 : 0;
 
     $import_json = isset($input['import_json']) ? trim((string)$input['import_json']) : '';
     if ($import_json !== '') {
@@ -155,181 +157,223 @@ class Church_Livestream_Switcher {
     <div class="wrap">
       <h1>AppleCreek Livestream Switcher</h1>
       <p>
-        Shortcode: <code>[church_livestream]</code> &nbsp;|&nbsp;
+        Video shortcode: <code>[church_livestream]</code> &nbsp;|&nbsp;
+        Chat shortcode: <code>[church_livestream_chat]</code> &nbsp;|&nbsp;
         REST status: <code>/wp-json/church-live/v1/status</code>
       </p>
+
+      <style>
+        .cls-tab-panel { display: none; margin-top: 16px; }
+        .cls-tab-panel.is-active { display: block; }
+        .cls-chat-help code { font-size: 12px; }
+      </style>
 
       <form method="post" action="options.php">
         <?php settings_fields('cls_group'); ?>
 
-        <table class="form-table" role="presentation">
-          <tr>
-            <th scope="row"><label for="cls_enabled">Plugin enabled</label></th>
-            <td>
-              <label>
-                <input id="cls_enabled" name="<?php echo esc_attr(self::OPT_KEY); ?>[enabled]" type="checkbox" value="1" <?php checked(!empty($s['enabled'])); ?> />
-                Enable automatic live switching and YouTube API checks.
-              </label>
-              <p class="description">When disabled, shortcode only shows the fallback playlist and status checks are skipped.</p>
-            </td>
-          </tr>
+        <h2 class="nav-tab-wrapper" id="cls_settings_tabs">
+          <a href="#cls-tab-general" class="nav-tab cls-tab-link nav-tab-active">General</a>
+          <a href="#cls-tab-options" class="nav-tab cls-tab-link">Options</a>
+          <a href="#cls-tab-scheduling" class="nav-tab cls-tab-link">Scheduling</a>
+          <a href="#cls-tab-live-chat" class="nav-tab cls-tab-link">Live Chat</a>
+        </h2>
 
-          <tr>
-            <th scope="row"><label for="cls_timezone">Timezone</label></th>
-            <td>
-              <input id="cls_timezone" name="<?php echo esc_attr(self::OPT_KEY); ?>[timezone]" type="text" value="<?php echo esc_attr($s['timezone']); ?>" class="regular-text" />
-              <p class="description">Example: <code>America/Toronto</code>, <code>America/New_York</code></p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_channel_id">YouTube Channel ID</label></th>
-            <td>
-              <input id="cls_channel_id" name="<?php echo esc_attr(self::OPT_KEY); ?>[channel_id]" type="text" value="<?php echo esc_attr($s['channel_id']); ?>" class="regular-text" />
-              <p class="description">Must start with <code>UC...</code> (not @handle).</p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_playlist_id">Playlist ID (fallback)</label></th>
-            <td>
-              <input id="cls_playlist_id" name="<?php echo esc_attr(self::OPT_KEY); ?>[playlist_id]" type="text" value="<?php echo esc_attr($s['playlist_id']); ?>" class="regular-text" />
-              <p class="description">Shown outside schedule windows, and as fallback if no live/upcoming is found. Must start with <code>PL...</code></p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_api_key">YouTube Data API Key</label></th>
-            <td>
-              <input id="cls_api_key" name="<?php echo esc_attr(self::OPT_KEY); ?>[api_key]" type="text" value="<?php echo esc_attr($s['api_key']); ?>" class="regular-text" />
-              <p class="description">
-                Required for auto-detecting LIVE and UPCOMING. Restrict this key to your server/IP and YouTube Data API v3.
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_cache_ttl">Backend cache TTL (seconds)</label></th>
-            <td>
-              <input id="cls_cache_ttl" name="<?php echo esc_attr(self::OPT_KEY); ?>[cache_ttl_seconds]" type="number" min="10" value="<?php echo esc_attr($s['cache_ttl_seconds']); ?>" />
-              <p class="description">How long live/upcoming detection results are cached during schedule windows.</p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_low_quota_mode">Low Quota Mode</label></th>
-            <td>
-              <label>
-                <input id="cls_low_quota_mode" name="<?php echo esc_attr(self::OPT_KEY); ?>[low_quota_mode]" type="checkbox" value="1" <?php checked(!empty($s['low_quota_mode'])); ?> />
-                Prioritize minimal API usage.
-              </label>
-              <p class="description">
-                Enforces quota-safe runtime values: backend cache at least <?php echo esc_html((string) self::LOW_QUOTA_CACHE_TTL_SECONDS); ?>s, front-end refresh at least <?php echo esc_html((string) self::LOW_QUOTA_POLL_SECONDS); ?>s, uploads playlist cache at least <?php echo esc_html((string) self::LOW_QUOTA_UPLOADS_TTL_SECONDS); ?>s (7 days), lookback capped at <?php echo esc_html((string) self::LOW_QUOTA_LOOKBACK_MAX); ?>.
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_poll_interval">Front-end refresh (seconds)</label></th>
-            <td>
-              <input id="cls_poll_interval" name="<?php echo esc_attr(self::OPT_KEY); ?>[poll_interval_seconds]" type="number" min="30" value="<?php echo esc_attr($s['poll_interval_seconds']); ?>" />
-              <p class="description">How often the embed re-checks during schedule windows. Recommended 120–300.</p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_lookback">Lookback count</label></th>
-            <td>
-              <input id="cls_lookback" name="<?php echo esc_attr(self::OPT_KEY); ?>[lookback_count]" type="number" min="3" max="25" value="<?php echo esc_attr($s['lookback_count']); ?>" />
-              <p class="description">How many recent uploads to scan for live/upcoming.</p>
-            </td>
-          </tr>
-
-          <tr>
-            <th scope="row"><label for="cls_uploads_ttl">Uploads playlist cache TTL (seconds)</label></th>
-            <td>
-              <input id="cls_uploads_ttl" name="<?php echo esc_attr(self::OPT_KEY); ?>[uploads_cache_ttl_seconds]" type="number" min="3600" value="<?php echo esc_attr($s['uploads_cache_ttl_seconds']); ?>" />
-              <p class="description">Caches your channel’s uploads playlist id (default 24h).</p>
-            </td>
-          </tr>
-        </table>
-
-        <h2>Weekly Schedule Windows</h2>
-        <p class="description">Outside these windows the shortcode always shows the playlist (no API calls).</p>
-
-        <table class="widefat fixed" id="cls_schedule_table">
-          <thead>
+        <section id="cls-tab-general" class="cls-tab-panel is-active">
+          <table class="form-table" role="presentation">
             <tr>
-              <th style="width: 35%;">Day</th>
-              <th style="width: 25%;">Start (HH:MM)</th>
-              <th style="width: 25%;">End (HH:MM)</th>
-              <th style="width: 15%;">Remove</th>
+              <th scope="row"><label for="cls_enabled">Plugin enabled</label></th>
+              <td>
+                <label>
+                  <input id="cls_enabled" name="<?php echo esc_attr(self::OPT_KEY); ?>[enabled]" type="checkbox" value="1" <?php checked(!empty($s['enabled'])); ?> />
+                  Enable automatic live switching and YouTube API checks.
+                </label>
+                <p class="description">When disabled, shortcode only shows the fallback playlist and status checks are skipped.</p>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            <?php foreach ($s['schedule'] as $i => $row): ?>
-              <tr>
-                <td>
-                  <select name="<?php echo esc_attr(self::OPT_KEY); ?>[schedule][<?php echo intval($i); ?>][day]">
-                    <?php foreach ($days as $dIdx => $dName): ?>
-                      <option value="<?php echo intval($dIdx); ?>" <?php selected(intval($row['day']), $dIdx); ?>>
-                        <?php echo esc_html($dName); ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                </td>
-                <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[schedule][<?php echo intval($i); ?>][start]" value="<?php echo esc_attr($row['start']); ?>" /></td>
-                <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[schedule][<?php echo intval($i); ?>][end]" value="<?php echo esc_attr($row['end']); ?>" /></td>
-                <td><button type="button" class="button cls-remove-row">Remove</button></td>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
 
-        <p>
-          <button type="button" class="button" id="cls_add_row">Add schedule row</button>
-        </p>
-
-        <h2>One-time Event Windows</h2>
-        <p class="description">Use this for special events (holidays, conferences, funerals, etc.) that should trigger live checks only on specific dates.</p>
-
-        <table class="widefat fixed" id="cls_onetime_table">
-          <thead>
             <tr>
-              <th style="width: 35%;">Date (YYYY-MM-DD)</th>
-              <th style="width: 25%;">Start (HH:MM)</th>
-              <th style="width: 25%;">End (HH:MM)</th>
-              <th style="width: 15%;">Remove</th>
+              <th scope="row"><label for="cls_timezone">Timezone</label></th>
+              <td>
+                <input id="cls_timezone" name="<?php echo esc_attr(self::OPT_KEY); ?>[timezone]" type="text" value="<?php echo esc_attr($s['timezone']); ?>" class="regular-text" />
+                <p class="description">Example: <code>America/Toronto</code>, <code>America/New_York</code></p>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            <?php foreach ($s['one_time_events'] as $i => $row): ?>
+
+            <tr>
+              <th scope="row"><label for="cls_channel_id">YouTube Channel ID</label></th>
+              <td>
+                <input id="cls_channel_id" name="<?php echo esc_attr(self::OPT_KEY); ?>[channel_id]" type="text" value="<?php echo esc_attr($s['channel_id']); ?>" class="regular-text" />
+                <p class="description">Must start with <code>UC...</code> (not @handle).</p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_playlist_id">Playlist ID (fallback)</label></th>
+              <td>
+                <input id="cls_playlist_id" name="<?php echo esc_attr(self::OPT_KEY); ?>[playlist_id]" type="text" value="<?php echo esc_attr($s['playlist_id']); ?>" class="regular-text" />
+                <p class="description">Shown outside schedule windows, and as fallback if no live/upcoming is found. Must start with <code>PL...</code></p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_api_key">YouTube Data API Key</label></th>
+              <td>
+                <input id="cls_api_key" name="<?php echo esc_attr(self::OPT_KEY); ?>[api_key]" type="text" value="<?php echo esc_attr($s['api_key']); ?>" class="regular-text" />
+                <p class="description">
+                  Required for auto-detecting LIVE and UPCOMING. Restrict this key to your server/IP and YouTube Data API v3.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </section>
+
+        <section id="cls-tab-options" class="cls-tab-panel">
+          <table class="form-table" role="presentation">
+            <tr>
+              <th scope="row"><label for="cls_cache_ttl">Backend cache TTL (seconds)</label></th>
+              <td>
+                <input id="cls_cache_ttl" name="<?php echo esc_attr(self::OPT_KEY); ?>[cache_ttl_seconds]" type="number" min="10" value="<?php echo esc_attr($s['cache_ttl_seconds']); ?>" />
+                <p class="description">How long live/upcoming detection results are cached during schedule windows.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_low_quota_mode">Low Quota Mode</label></th>
+              <td>
+                <label>
+                  <input id="cls_low_quota_mode" name="<?php echo esc_attr(self::OPT_KEY); ?>[low_quota_mode]" type="checkbox" value="1" <?php checked(!empty($s['low_quota_mode'])); ?> />
+                  Prioritize minimal API usage.
+                </label>
+                <p class="description">
+                  Enforces quota-safe runtime values: backend cache at least <?php echo esc_html((string) self::LOW_QUOTA_CACHE_TTL_SECONDS); ?>s, front-end refresh at least <?php echo esc_html((string) self::LOW_QUOTA_POLL_SECONDS); ?>s, uploads playlist cache at least <?php echo esc_html((string) self::LOW_QUOTA_UPLOADS_TTL_SECONDS); ?>s (7 days), lookback capped at <?php echo esc_html((string) self::LOW_QUOTA_LOOKBACK_MAX); ?>.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_poll_interval">Front-end refresh (seconds)</label></th>
+              <td>
+                <input id="cls_poll_interval" name="<?php echo esc_attr(self::OPT_KEY); ?>[poll_interval_seconds]" type="number" min="30" value="<?php echo esc_attr($s['poll_interval_seconds']); ?>" />
+                <p class="description">How often the embed re-checks during schedule windows. Recommended 120–300.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_lookback">Lookback count</label></th>
+              <td>
+                <input id="cls_lookback" name="<?php echo esc_attr(self::OPT_KEY); ?>[lookback_count]" type="number" min="3" max="25" value="<?php echo esc_attr($s['lookback_count']); ?>" />
+                <p class="description">How many recent uploads to scan for live/upcoming.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_uploads_ttl">Uploads playlist cache TTL (seconds)</label></th>
+              <td>
+                <input id="cls_uploads_ttl" name="<?php echo esc_attr(self::OPT_KEY); ?>[uploads_cache_ttl_seconds]" type="number" min="3600" value="<?php echo esc_attr($s['uploads_cache_ttl_seconds']); ?>" />
+                <p class="description">Caches your channel’s uploads playlist id (default 24h).</p>
+              </td>
+            </tr>
+          </table>
+        </section>
+
+        <section id="cls-tab-scheduling" class="cls-tab-panel">
+          <h2>Weekly Schedule Windows</h2>
+          <p class="description">Outside these windows the shortcode always shows the playlist (no API calls).</p>
+
+          <table class="widefat fixed" id="cls_schedule_table">
+            <thead>
               <tr>
-                <td><input type="date" name="<?php echo esc_attr(self::OPT_KEY); ?>[one_time_events][<?php echo intval($i); ?>][date]" value="<?php echo esc_attr($row['date']); ?>" /></td>
-                <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[one_time_events][<?php echo intval($i); ?>][start]" value="<?php echo esc_attr($row['start']); ?>" /></td>
-                <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[one_time_events][<?php echo intval($i); ?>][end]" value="<?php echo esc_attr($row['end']); ?>" /></td>
-                <td><button type="button" class="button cls-remove-onetime-row">Remove</button></td>
+                <th style="width: 35%;">Day</th>
+                <th style="width: 25%;">Start (HH:MM)</th>
+                <th style="width: 25%;">End (HH:MM)</th>
+                <th style="width: 15%;">Remove</th>
               </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <?php foreach ($s['schedule'] as $i => $row): ?>
+                <tr>
+                  <td>
+                    <select name="<?php echo esc_attr(self::OPT_KEY); ?>[schedule][<?php echo intval($i); ?>][day]">
+                      <?php foreach ($days as $dIdx => $dName): ?>
+                        <option value="<?php echo intval($dIdx); ?>" <?php selected(intval($row['day']), $dIdx); ?>>
+                          <?php echo esc_html($dName); ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </td>
+                  <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[schedule][<?php echo intval($i); ?>][start]" value="<?php echo esc_attr($row['start']); ?>" /></td>
+                  <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[schedule][<?php echo intval($i); ?>][end]" value="<?php echo esc_attr($row['end']); ?>" /></td>
+                  <td><button type="button" class="button cls-remove-row">Remove</button></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
 
-        <p>
-          <button type="button" class="button" id="cls_add_onetime_row">Add one-time event row</button>
-        </p>
+          <p>
+            <button type="button" class="button" id="cls_add_row">Add schedule row</button>
+          </p>
 
-        <h2>Import / Export Schedule</h2>
+          <h2>One-time Event Windows</h2>
+          <p class="description">Use this for special events (holidays, conferences, funerals, etc.) that should trigger live checks only on specific dates.</p>
 
-        <p><strong>Export JSON</strong></p>
-        <textarea readonly class="large-text code" rows="6"><?php
-          echo esc_textarea(json_encode([
-            'schedule' => $s['schedule'],
-            'one_time_events' => $s['one_time_events'],
-          ], JSON_PRETTY_PRINT));
-        ?></textarea>
+          <table class="widefat fixed" id="cls_onetime_table">
+            <thead>
+              <tr>
+                <th style="width: 35%;">Date (YYYY-MM-DD)</th>
+                <th style="width: 25%;">Start (HH:MM)</th>
+                <th style="width: 25%;">End (HH:MM)</th>
+                <th style="width: 15%;">Remove</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($s['one_time_events'] as $i => $row): ?>
+                <tr>
+                  <td><input type="date" name="<?php echo esc_attr(self::OPT_KEY); ?>[one_time_events][<?php echo intval($i); ?>][date]" value="<?php echo esc_attr($row['date']); ?>" /></td>
+                  <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[one_time_events][<?php echo intval($i); ?>][start]" value="<?php echo esc_attr($row['start']); ?>" /></td>
+                  <td><input type="time" name="<?php echo esc_attr(self::OPT_KEY); ?>[one_time_events][<?php echo intval($i); ?>][end]" value="<?php echo esc_attr($row['end']); ?>" /></td>
+                  <td><button type="button" class="button cls-remove-onetime-row">Remove</button></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
 
-        <p><strong>Import JSON</strong> (paste and Save Changes)</p>
-        <textarea name="<?php echo esc_attr(self::OPT_KEY); ?>[import_json]" class="large-text code" rows="6" placeholder='{"schedule":[{"day":0,"start":"09:30","end":"13:00"}],"one_time_events":[{"date":"2026-12-24","start":"18:30","end":"21:00"}]}'></textarea>
+          <p>
+            <button type="button" class="button" id="cls_add_onetime_row">Add one-time event row</button>
+          </p>
+
+          <h2>Import / Export Schedule</h2>
+
+          <p><strong>Export JSON</strong></p>
+          <textarea readonly class="large-text code" rows="6"><?php
+            echo esc_textarea(json_encode([
+              'schedule' => $s['schedule'],
+              'one_time_events' => $s['one_time_events'],
+            ], JSON_PRETTY_PRINT));
+          ?></textarea>
+
+          <p><strong>Import JSON</strong> (paste and Save Changes)</p>
+          <textarea name="<?php echo esc_attr(self::OPT_KEY); ?>[import_json]" class="large-text code" rows="6" placeholder='{"schedule":[{"day":0,"start":"09:30","end":"13:00"}],"one_time_events":[{"date":"2026-12-24","start":"18:30","end":"21:00"}]}'></textarea>
+        </section>
+
+        <section id="cls-tab-live-chat" class="cls-tab-panel">
+          <table class="form-table" role="presentation">
+            <tr>
+              <th scope="row"><label for="cls_chat_show_upcoming">Show chat for upcoming</label></th>
+              <td>
+                <label>
+                  <input id="cls_chat_show_upcoming" name="<?php echo esc_attr(self::OPT_KEY); ?>[chat_show_upcoming]" type="checkbox" value="1" <?php checked(!empty($s['chat_show_upcoming'])); ?> />
+                  Show chat when stream status is <code>upcoming_video</code>.
+                </label>
+                <p class="description">Turn this off to show chat only when the stream is actually live.</p>
+              </td>
+            </tr>
+          </table>
+
+          <div class="cls-chat-help">
+            <p><strong>Chat shortcode:</strong> <code>[church_livestream_chat]</code></p>
+            <p><strong>Optional attributes:</strong> <code>height="600"</code>, <code>offline_message="Live chat is available when the stream is live."</code></p>
+          </div>
+        </section>
 
         <?php submit_button('Save Changes'); ?>
       </form>
@@ -337,6 +381,42 @@ class Church_Livestream_Switcher {
 
     <script>
       (function(){
+        const tabLinks = document.querySelectorAll('#cls_settings_tabs .cls-tab-link');
+        const tabPanels = document.querySelectorAll('.cls-tab-panel');
+
+        function activateTab(targetId, updateHash) {
+          if (!targetId) return;
+          const target = document.querySelector(targetId);
+          if (!target || !target.classList.contains('cls-tab-panel')) return;
+
+          tabLinks.forEach((link) => {
+            const active = link.getAttribute('href') === targetId;
+            link.classList.toggle('nav-tab-active', active);
+          });
+          tabPanels.forEach((panel) => {
+            panel.classList.toggle('is-active', panel.id === target.id);
+          });
+
+          if (updateHash) {
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, '', targetId);
+            } else {
+              window.location.hash = targetId;
+            }
+          }
+        }
+
+        tabLinks.forEach((link) => {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            activateTab(link.getAttribute('href'), true);
+          });
+        });
+
+        if (window.location.hash) {
+          activateTab(window.location.hash, false);
+        }
+
         const scheduleTableBody = document.querySelector('#cls_schedule_table tbody');
         const scheduleAddBtn = document.getElementById('cls_add_row');
         const onetimeTableBody = document.querySelector('#cls_onetime_table tbody');
@@ -815,6 +895,7 @@ class Church_Livestream_Switcher {
     $s = self::apply_low_quota_profile(self::get_settings());
     $poll = intval($s['poll_interval_seconds']);
     $enabled = !empty($s['enabled']);
+    $showUpcoming = !empty($s['chat_show_upcoming']);
 
     $height = isset($atts['height']) ? max(240, intval($atts['height'])) : 600;
     $offlineMessage = isset($atts['offline_message']) ? sanitize_text_field($atts['offline_message']) : 'Live chat is available when the stream is live.';
@@ -845,6 +926,7 @@ class Church_Livestream_Switcher {
       <script>
         (function(){
           const SWITCHING_ENABLED = <?php echo wp_json_encode($enabled); ?>;
+          const SHOW_UPCOMING_CHAT = <?php echo wp_json_encode($showUpcoming); ?>;
           const POLL_SECONDS = <?php echo wp_json_encode($poll); ?>;
           const EMBED_DOMAIN = <?php echo wp_json_encode($embedDomain); ?>;
           const frame = document.getElementById(<?php echo wp_json_encode($frameId); ?>);
@@ -865,6 +947,13 @@ class Church_Livestream_Switcher {
             if (offline.style.display !== 'none') offline.style.display = 'none';
           }
 
+          function canShowChatForStatus(data) {
+            if (!data || !data.inWindow || !data.videoId) return false;
+            if (data.mode === 'live_video') return true;
+            if (data.mode === 'upcoming_video') return !!SHOW_UPCOMING_CHAT;
+            return false;
+          }
+
           async function refresh() {
             if (!SWITCHING_ENABLED) {
               showOffline();
@@ -874,7 +963,7 @@ class Church_Livestream_Switcher {
             try {
               const res = await fetch('<?php echo esc_url_raw(rest_url('church-live/v1/status')); ?>', { cache: 'no-store' });
               const data = await res.json();
-              if (data && data.inWindow && (data.mode === 'live_video' || data.mode === 'upcoming_video') && data.videoId) {
+              if (canShowChatForStatus(data)) {
                 showChat(data.videoId);
               } else {
                 showOffline();
