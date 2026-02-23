@@ -21,7 +21,7 @@ The switch is controlled by schedule windows so API checks only happen when need
 - Built-in caching to reduce quota usage
 - Low Quota Mode for safer defaults
 - Global plugin enable/disable switch (no API calls when disabled)
-- Tabbed admin settings (General, Options, Player Appearance, Scheduling, Live Chat)
+- Tabbed admin settings (General, Updates, Options, Player Appearance, Scheduling, Live Chat)
 - Chat visibility toggle for upcoming streams
 - Extensive player appearance and YouTube embed parameter controls
 - Advanced custom embed query parameter override
@@ -57,6 +57,24 @@ Frontend then switches iframe source:
 - YouTube channel ID (`UC...`, not handle format)
 - YouTube Data API v3 key
 - Fallback playlist ID (recommended)
+
+## GitHub Updates
+
+This plugin can self-update from GitHub Releases.
+
+1. Open `Settings -> AC Livestream -> Updates`.
+2. Turn on `Enable GitHub updates`.
+3. Set `GitHub repo` as `owner/repo`.
+4. Optional:
+   - Add `GitHub token` for private repos or higher rate limits.
+   - Enable prerelease updates if desired.
+   - Set `Release asset filename` if your release includes multiple ZIP files.
+5. Publish releases with tags like `v1.7.0` (or `1.7.0`).
+
+Notes:
+
+- If no asset filename is set, updater picks the first `.zip` asset, then falls back to GitHub zipball.
+- WordPress checks plugin updates on its normal schedule; cache TTL controls GitHub metadata refresh.
 
 ## Project Structure
 
@@ -111,6 +129,7 @@ Video appearance behavior:
 
 - Tabs:
   - `General`: global plugin state and YouTube identifiers
+  - `Updates`: GitHub release-based plugin updates
   - `Options`: quota/performance controls
   - `Player Appearance`: iframe/container style + YouTube embed params
   - `Scheduling`: weekly windows, one-time events, import/export
@@ -132,6 +151,8 @@ Video appearance behavior:
 
 - `YouTube Data API Key`
   - Required for live/upcoming detection.
+  - UI now masks saved value; leave input blank to keep current key.
+  - Use `Clear saved API key` checkbox to remove it.
 
 - `Backend cache TTL (seconds)`
   - How long status result is cached during active windows.
@@ -155,6 +176,16 @@ Video appearance behavior:
 - `Show chat for upcoming`
   - When enabled, chat appears for `upcoming_video`.
   - When disabled, chat appears only for `live_video`.
+
+- `Updates` tab
+  - `Enable GitHub updates`
+  - `GitHub repo` in `owner/repo` format
+  - `GitHub token` (optional)
+    - UI masks saved token; leave blank to keep existing token.
+    - Use `Clear saved GitHub token` checkbox to remove it.
+  - `Include pre-releases`
+  - `Update metadata cache TTL (seconds)`
+  - `Release asset filename` (optional exact ZIP name)
 
 - `Player Appearance` tab
   - Container/frame style:
@@ -337,4 +368,4 @@ Check:
 
 ## Version
 
-Current plugin header version: `1.6.0`
+Current plugin header version: `1.7.1`

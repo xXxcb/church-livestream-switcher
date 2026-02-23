@@ -5,6 +5,7 @@ if (!defined('ABSPATH')) exit;
 class Church_Livestream_Switcher {
   const OPT_KEY = 'cls_settings';
   const TRANSIENT_KEY = 'cls_live_status';
+  const GITHUB_RELEASE_TRANSIENT_PREFIX = 'cls_github_release_';
   const LOW_QUOTA_CACHE_TTL_SECONDS = 600;
   const LOW_QUOTA_POLL_SECONDS = 300;
   const LOW_QUOTA_UPLOADS_TTL_SECONDS = 604800;
@@ -16,6 +17,9 @@ class Church_Livestream_Switcher {
     add_shortcode('church_livestream', [__CLASS__, 'shortcode']);
     add_shortcode('church_livestream_chat', [__CLASS__, 'shortcode_chat']);
     add_action('rest_api_init', [__CLASS__, 'register_rest']);
+    add_filter('pre_set_site_transient_update_plugins', [__CLASS__, 'filter_update_plugins']);
+    add_filter('plugins_api', [__CLASS__, 'filter_plugins_api'], 20, 3);
+    add_filter('upgrader_source_selection', [__CLASS__, 'filter_upgrader_source_selection'], 10, 4);
   }
 
   public static function defaults() {
@@ -65,6 +69,12 @@ class Church_Livestream_Switcher {
       'player_origin_mode' => 'auto',
       'player_origin_custom' => '',
       'player_custom_params' => '',
+      'github_updates_enabled' => 0,
+      'github_repo' => '',
+      'github_token' => '',
+      'github_include_prerelease' => 0,
+      'github_cache_ttl_seconds' => 21600,
+      'github_asset_name' => '',
       'schedule' => [],
       'one_time_events' => [],
       'import_json' => '',
@@ -86,13 +96,19 @@ class Church_Livestream_Switcher {
 
   public static function sanitize_settings($input) {
     $d = self::defaults();
+    $existing = self::get_settings();
     $out = [];
 
     $out['enabled'] = !empty($input['enabled']) ? 1 : 0;
     $out['timezone'] = isset($input['timezone']) ? sanitize_text_field($input['timezone']) : $d['timezone'];
     $out['channel_id'] = isset($input['channel_id']) ? sanitize_text_field($input['channel_id']) : '';
     $out['playlist_id'] = isset($input['playlist_id']) ? sanitize_text_field($input['playlist_id']) : '';
-    $out['api_key'] = isset($input['api_key']) ? sanitize_text_field($input['api_key']) : '';
+    $apiKeyInput = isset($input['api_key']) ? sanitize_text_field((string) $input['api_key']) : '';
+    if (!empty($input['api_key_clear'])) {
+      $out['api_key'] = '';
+    } else {
+      $out['api_key'] = trim($apiKeyInput) !== '' ? $apiKeyInput : ((string) ($existing['api_key'] ?? ''));
+    }
     $out['cache_ttl_seconds'] = isset($input['cache_ttl_seconds']) ? max(10, intval($input['cache_ttl_seconds'])) : $d['cache_ttl_seconds'];
     $out['poll_interval_seconds'] = isset($input['poll_interval_seconds']) ? max(30, intval($input['poll_interval_seconds'])) : $d['poll_interval_seconds'];
     $out['lookback_count'] = isset($input['lookback_count']) ? max(3, min(25, intval($input['lookback_count']))) : $d['lookback_count'];
@@ -134,6 +150,17 @@ class Church_Livestream_Switcher {
     $out['player_origin_mode'] = isset($input['player_origin_mode']) ? self::sanitize_choice($input['player_origin_mode'], ['auto', 'off', 'custom'], $d['player_origin_mode']) : $d['player_origin_mode'];
     $out['player_origin_custom'] = isset($input['player_origin_custom']) ? self::sanitize_origin_url($input['player_origin_custom']) : $d['player_origin_custom'];
     $out['player_custom_params'] = isset($input['player_custom_params']) ? self::sanitize_embed_query_string($input['player_custom_params']) : $d['player_custom_params'];
+    $out['github_updates_enabled'] = !empty($input['github_updates_enabled']) ? 1 : 0;
+    $out['github_repo'] = isset($input['github_repo']) ? self::sanitize_github_repo($input['github_repo']) : $d['github_repo'];
+    $githubTokenInput = isset($input['github_token']) ? sanitize_text_field((string) $input['github_token']) : '';
+    if (!empty($input['github_token_clear'])) {
+      $out['github_token'] = '';
+    } else {
+      $out['github_token'] = trim($githubTokenInput) !== '' ? $githubTokenInput : ((string) ($existing['github_token'] ?? ''));
+    }
+    $out['github_include_prerelease'] = !empty($input['github_include_prerelease']) ? 1 : 0;
+    $out['github_cache_ttl_seconds'] = isset($input['github_cache_ttl_seconds']) ? max(300, intval($input['github_cache_ttl_seconds'])) : $d['github_cache_ttl_seconds'];
+    $out['github_asset_name'] = isset($input['github_asset_name']) ? sanitize_text_field((string) $input['github_asset_name']) : $d['github_asset_name'];
 
     if ($out['player_origin_mode'] !== 'custom') {
       $out['player_origin_custom'] = '';
@@ -159,7 +186,27 @@ class Church_Livestream_Switcher {
     }
 
     delete_transient(self::TRANSIENT_KEY);
+    self::delete_github_release_cache($d['github_repo'], !empty($d['github_include_prerelease']));
+    self::delete_github_release_cache($out['github_repo'], !empty($out['github_include_prerelease']));
     return wp_parse_args($out, $d);
+  }
+
+  private static function sanitize_github_repo($value) {
+    $clean = trim((string) $value);
+    if ($clean === '') return '';
+    if (!preg_match('/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/', $clean)) return '';
+    return $clean;
+  }
+
+  private static function masked_secret_preview($value, $visibleTail = 4) {
+    $raw = trim((string) $value);
+    if ($raw === '') return 'Not set';
+
+    $tail = max(0, intval($visibleTail));
+    $len = strlen($raw);
+    if ($tail <= 0 || $len <= $tail) return str_repeat('*', max(8, $len));
+
+    return str_repeat('*', max(8, $len - $tail)) . substr($raw, -$tail);
   }
 
   private static function sanitize_text_or_default($value, $default) {
@@ -310,9 +357,10 @@ class Church_Livestream_Switcher {
 
   public static function settings_page() {
     if (!current_user_can('manage_options')) return;
+    $settings = self::get_settings();
 
     $templateVars = [
-      's' => self::get_settings(),
+      's' => $settings,
       'days' => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
       'optKey' => self::OPT_KEY,
       'lowQuotaCacheTtlSeconds' => self::LOW_QUOTA_CACHE_TTL_SECONDS,
@@ -320,6 +368,8 @@ class Church_Livestream_Switcher {
       'lowQuotaUploadsTtlSeconds' => self::LOW_QUOTA_UPLOADS_TTL_SECONDS,
       'lowQuotaLookbackMax' => self::LOW_QUOTA_LOOKBACK_MAX,
       'referrerPolicies' => self::referrer_policies(),
+      'apiKeyPreview' => self::masked_secret_preview($settings['api_key'] ?? ''),
+      'githubTokenPreview' => self::masked_secret_preview($settings['github_token'] ?? ''),
     ];
 
     self::render_template('admin/settings-page.php', $templateVars, true);
@@ -339,6 +389,231 @@ class Church_Livestream_Switcher {
 
     if ($echo) echo $html;
     return $html;
+  }
+
+  private static function plugin_basename() {
+    return plugin_basename(CLS_PLUGIN_FILE);
+  }
+
+  private static function plugin_slug() {
+    $base = self::plugin_basename();
+    $dir = dirname($base);
+    return ($dir === '.' || $dir === DIRECTORY_SEPARATOR) ? basename($base, '.php') : $dir;
+  }
+
+  private static function plugin_version() {
+    return defined('CLS_PLUGIN_VERSION') ? (string) CLS_PLUGIN_VERSION : '0.0.0';
+  }
+
+  private static function github_cache_key($repo, $includePrerelease) {
+    return self::GITHUB_RELEASE_TRANSIENT_PREFIX . md5(strtolower(trim((string) $repo)) . '|' . (!empty($includePrerelease) ? '1' : '0'));
+  }
+
+  private static function delete_github_release_cache($repo, $includePrerelease) {
+    $repo = self::sanitize_github_repo($repo);
+    if ($repo === '') return;
+    delete_transient(self::github_cache_key($repo, $includePrerelease));
+  }
+
+  private static function normalize_release_version($tag) {
+    $version = trim((string) $tag);
+    if (preg_match('/^v(?=\d)/i', $version)) {
+      $version = substr($version, 1);
+    }
+    $version = preg_replace('/[^0-9A-Za-z.\-+]/', '', (string) $version);
+    return trim((string) $version);
+  }
+
+  private static function pick_github_release($payload, $includePrerelease) {
+    if (is_array($payload) && isset($payload['tag_name'])) {
+      return $payload;
+    }
+    if (!is_array($payload)) return null;
+
+    foreach ($payload as $item) {
+      if (!is_array($item)) continue;
+      if (!empty($item['draft'])) continue;
+      if (empty($includePrerelease) && !empty($item['prerelease'])) continue;
+      if (empty($item['tag_name'])) continue;
+      return $item;
+    }
+    return null;
+  }
+
+  private static function select_release_package_url($release, $assetName = '') {
+    $assetName = trim((string) $assetName);
+    $assets = (is_array($release) && !empty($release['assets']) && is_array($release['assets'])) ? $release['assets'] : [];
+
+    if ($assetName !== '') {
+      foreach ($assets as $asset) {
+        if (!is_array($asset)) continue;
+        $name = (string) ($asset['name'] ?? '');
+        if (strtolower($name) !== strtolower($assetName)) continue;
+        $url = esc_url_raw((string) ($asset['browser_download_url'] ?? ''), ['http', 'https']);
+        if ($url !== '' && preg_match('/\.zip($|\?)/i', $name)) return $url;
+      }
+    }
+
+    foreach ($assets as $asset) {
+      if (!is_array($asset)) continue;
+      $name = (string) ($asset['name'] ?? '');
+      if (!preg_match('/\.zip($|\?)/i', $name)) continue;
+      $url = esc_url_raw((string) ($asset['browser_download_url'] ?? ''), ['http', 'https']);
+      if ($url !== '') return $url;
+    }
+
+    $zipball = esc_url_raw((string) ($release['zipball_url'] ?? ''), ['http', 'https']);
+    return $zipball !== '' ? $zipball : '';
+  }
+
+  private static function fetch_github_release_from_api($settings) {
+    $repo = self::sanitize_github_repo($settings['github_repo'] ?? '');
+    if ($repo === '') return null;
+    [$owner, $project] = explode('/', $repo, 2);
+
+    $includePrerelease = !empty($settings['github_include_prerelease']);
+    $url = $includePrerelease
+      ? 'https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($project) . '/releases?per_page=20'
+      : 'https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($project) . '/releases/latest';
+
+    $headers = [
+      'Accept' => 'application/vnd.github+json',
+      'User-Agent' => 'AppleCreek-Livestream-Switcher/' . self::plugin_version(),
+    ];
+    $token = trim((string) ($settings['github_token'] ?? ''));
+    if ($token !== '') $headers['Authorization'] = 'Bearer ' . $token;
+
+    $resp = wp_remote_get($url, [
+      'timeout' => 15,
+      'headers' => $headers,
+    ]);
+
+    if (is_wp_error($resp)) return null;
+    $code = intval(wp_remote_retrieve_response_code($resp));
+    if ($code < 200 || $code >= 300) return null;
+
+    $payload = json_decode(wp_remote_retrieve_body($resp), true);
+    $release = self::pick_github_release($payload, $includePrerelease);
+    if (!is_array($release)) return null;
+
+    $version = self::normalize_release_version($release['tag_name'] ?? '');
+    if ($version === '') return null;
+
+    $downloadUrl = self::select_release_package_url($release, (string) ($settings['github_asset_name'] ?? ''));
+    if ($downloadUrl === '') return null;
+
+    return [
+      'version' => $version,
+      'tag' => (string) ($release['tag_name'] ?? ''),
+      'name' => (string) ($release['name'] ?? ''),
+      'html_url' => esc_url_raw((string) ($release['html_url'] ?? ''), ['http', 'https']),
+      'download_url' => $downloadUrl,
+      'published_at' => (string) ($release['published_at'] ?? ''),
+      'body' => (string) ($release['body'] ?? ''),
+      'prerelease' => !empty($release['prerelease']) ? 1 : 0,
+    ];
+  }
+
+  private static function get_github_release($settings, $force = false) {
+    $repo = self::sanitize_github_repo($settings['github_repo'] ?? '');
+    if ($repo === '') return null;
+
+    $includePrerelease = !empty($settings['github_include_prerelease']);
+    $cacheKey = self::github_cache_key($repo, $includePrerelease);
+
+    if (!$force) {
+      $cached = get_transient($cacheKey);
+      if (is_array($cached)) return $cached;
+      if (is_string($cached) && $cached === '__error__') return null;
+    }
+
+    $ttl = max(300, intval($settings['github_cache_ttl_seconds'] ?? 21600));
+    $release = self::fetch_github_release_from_api($settings);
+    if (is_array($release)) {
+      set_transient($cacheKey, $release, $ttl);
+      return $release;
+    }
+
+    set_transient($cacheKey, '__error__', min($ttl, 900));
+    return null;
+  }
+
+  public static function filter_update_plugins($transient) {
+    if (!is_object($transient) || empty($transient->checked) || !is_array($transient->checked)) return $transient;
+
+    $settings = self::get_settings();
+    if (empty($settings['github_updates_enabled'])) return $transient;
+    if (empty($settings['github_repo'])) return $transient;
+
+    $plugin = self::plugin_basename();
+    if (empty($transient->checked[$plugin])) return $transient;
+
+    $release = self::get_github_release($settings, false);
+    if (!is_array($release) || empty($release['version']) || empty($release['download_url'])) return $transient;
+
+    $currentVersion = (string) $transient->checked[$plugin];
+    if (!version_compare((string) $release['version'], $currentVersion, '>')) return $transient;
+
+    $transient->response[$plugin] = (object) [
+      'id' => $plugin,
+      'slug' => self::plugin_slug(),
+      'plugin' => $plugin,
+      'new_version' => (string) $release['version'],
+      'url' => (string) ($release['html_url'] ?? ''),
+      'package' => (string) ($release['download_url'] ?? ''),
+    ];
+
+    return $transient;
+  }
+
+  public static function filter_plugins_api($result, $action, $args) {
+    if ($action !== 'plugin_information' || !is_object($args)) return $result;
+
+    $slug = isset($args->slug) ? sanitize_text_field((string) $args->slug) : '';
+    if ($slug !== self::plugin_slug()) return $result;
+
+    $settings = self::get_settings();
+    if (empty($settings['github_updates_enabled']) || empty($settings['github_repo'])) return $result;
+
+    $release = self::get_github_release($settings, false);
+    if (!is_array($release)) return $result;
+
+    $changelog = trim((string) ($release['body'] ?? ''));
+    if ($changelog === '') $changelog = 'No changelog provided for this release.';
+
+    return (object) [
+      'name' => 'AppleCreek Livestream Switcher',
+      'slug' => self::plugin_slug(),
+      'version' => (string) ($release['version'] ?? self::plugin_version()),
+      'author' => '<a href="https://xanderstudios.pro">Carlos Burke</a>',
+      'homepage' => (string) ($release['html_url'] ?? ''),
+      'download_link' => (string) ($release['download_url'] ?? ''),
+      'sections' => [
+        'description' => 'This plugin receives updates from configured GitHub releases.',
+        'changelog' => wpautop(esc_html($changelog)),
+      ],
+    ];
+  }
+
+  public static function filter_upgrader_source_selection($source, $remote_source, $upgrader, $hook_extra = []) {
+    if (!is_array($hook_extra)) return $source;
+    if (empty($hook_extra['plugin'])) return $source;
+    if (sanitize_text_field((string) $hook_extra['plugin']) !== self::plugin_basename()) return $source;
+    if (!is_string($source) || !is_dir($source)) return $source;
+
+    $expected = trailingslashit((string) $remote_source) . self::plugin_slug();
+    if (untrailingslashit($source) === untrailingslashit($expected)) return $source;
+    if (is_dir($expected)) return $source;
+
+    if (@rename($source, $expected)) return $expected;
+
+    if (!function_exists('copy_dir')) {
+      require_once ABSPATH . 'wp-admin/includes/file.php';
+    }
+    $copied = copy_dir($source, $expected);
+    if (is_wp_error($copied)) return $source;
+
+    return $expected;
   }
 
   public static function register_rest() {
