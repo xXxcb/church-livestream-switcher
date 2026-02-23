@@ -17,6 +17,7 @@
 
         <h2 class="nav-tab-wrapper" id="cls_settings_tabs">
           <a href="#cls-tab-general" class="nav-tab cls-tab-link nav-tab-active">General</a>
+          <a href="#cls-tab-updates" class="nav-tab cls-tab-link">Updates</a>
           <a href="#cls-tab-options" class="nav-tab cls-tab-link">Options</a>
           <a href="#cls-tab-player" class="nav-tab cls-tab-link">Player Appearance</a>
           <a href="#cls-tab-scheduling" class="nav-tab cls-tab-link">Scheduling</a>
@@ -63,13 +64,84 @@
             <tr>
               <th scope="row"><label for="cls_api_key">YouTube Data API Key</label></th>
               <td>
-                <input id="cls_api_key" name="<?php echo esc_attr($optKey); ?>[api_key]" type="text" value="<?php echo esc_attr($s['api_key']); ?>" class="regular-text" />
+                <input id="cls_api_key" name="<?php echo esc_attr($optKey); ?>[api_key]" type="password" value="" class="regular-text" autocomplete="new-password" />
                 <p class="description">
-                  Required for auto-detecting LIVE and UPCOMING. Restrict this key to your server/IP and YouTube Data API v3.
+                  Required for auto-detecting LIVE and UPCOMING. Restrict this key to your server/IP and YouTube Data API v3. Leave blank to keep existing key.
                 </p>
+                <p class="description">Saved key: <code><?php echo esc_html($apiKeyPreview); ?></code></p>
+                <label>
+                  <input name="<?php echo esc_attr($optKey); ?>[api_key_clear]" type="checkbox" value="1" />
+                  Clear saved API key on next save.
+                </label>
               </td>
             </tr>
           </table>
+        </section>
+
+        <section id="cls-tab-updates" class="cls-tab-panel">
+          <h2>GitHub Updates</h2>
+          <p class="description">Configure WordPress plugin updates from GitHub Releases.</p>
+
+          <table class="form-table" role="presentation">
+            <tr>
+              <th scope="row"><label for="cls_github_updates_enabled">Enable GitHub updates</label></th>
+              <td>
+                <label>
+                  <input id="cls_github_updates_enabled" name="<?php echo esc_attr($optKey); ?>[github_updates_enabled]" type="checkbox" value="1" <?php checked(!empty($s['github_updates_enabled'])); ?> />
+                  Let WordPress check GitHub for new plugin versions.
+                </label>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_github_repo">GitHub repo</label></th>
+              <td>
+                <input id="cls_github_repo" name="<?php echo esc_attr($optKey); ?>[github_repo]" type="text" value="<?php echo esc_attr($s['github_repo']); ?>" class="regular-text" placeholder="owner/repo" />
+                <p class="description">Format: <code>owner/repo</code> (example: <code>xanderstudios/church-livestream-switcher</code>).</p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_github_token">GitHub token (optional)</label></th>
+              <td>
+                <input id="cls_github_token" name="<?php echo esc_attr($optKey); ?>[github_token]" type="password" value="" class="regular-text" autocomplete="new-password" />
+                <p class="description">Use a token for private repos or higher API limits. Leave blank to keep existing token.</p>
+                <p class="description">Saved token: <code><?php echo esc_html($githubTokenPreview); ?></code></p>
+                <label>
+                  <input name="<?php echo esc_attr($optKey); ?>[github_token_clear]" type="checkbox" value="1" />
+                  Clear saved GitHub token on next save.
+                </label>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_github_include_prerelease">Include pre-releases</label></th>
+              <td>
+                <label>
+                  <input id="cls_github_include_prerelease" name="<?php echo esc_attr($optKey); ?>[github_include_prerelease]" type="checkbox" value="1" <?php checked(!empty($s['github_include_prerelease'])); ?> />
+                  Allow updates from GitHub prerelease tags.
+                </label>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_github_cache_ttl_seconds">Update metadata cache TTL (seconds)</label></th>
+              <td>
+                <input id="cls_github_cache_ttl_seconds" name="<?php echo esc_attr($optKey); ?>[github_cache_ttl_seconds]" type="number" min="300" value="<?php echo esc_attr($s['github_cache_ttl_seconds']); ?>" />
+                <p class="description">How long release metadata stays cached before querying GitHub again.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_github_asset_name">Release asset filename (optional)</label></th>
+              <td>
+                <input id="cls_github_asset_name" name="<?php echo esc_attr($optKey); ?>[github_asset_name]" type="text" value="<?php echo esc_attr($s['github_asset_name']); ?>" class="regular-text" placeholder="church-livestream-switcher.zip" />
+                <p class="description">If set, updater will prefer this exact ZIP asset name from each release.</p>
+              </td>
+            </tr>
+          </table>
+
+          <p class="description">Release tags should use versions like <code>v1.7.0</code> or <code>1.7.0</code>.</p>
         </section>
 
         <section id="cls-tab-options" class="cls-tab-panel">
