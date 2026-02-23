@@ -6,6 +6,7 @@ class Church_Livestream_Switcher {
   const OPT_KEY = 'cls_settings';
   const TRANSIENT_KEY = 'cls_live_status';
   const GITHUB_RELEASE_TRANSIENT_PREFIX = 'cls_github_release_';
+  const ADMIN_PAGE_SLUG = 'church-livestream-switcher';
   const LOW_QUOTA_CACHE_TTL_SECONDS = 600;
   const LOW_QUOTA_POLL_SECONDS = 300;
   const LOW_QUOTA_UPLOADS_TTL_SECONDS = 604800;
@@ -17,6 +18,7 @@ class Church_Livestream_Switcher {
     add_shortcode('church_livestream', [__CLASS__, 'shortcode']);
     add_shortcode('church_livestream_chat', [__CLASS__, 'shortcode_chat']);
     add_action('rest_api_init', [__CLASS__, 'register_rest']);
+    add_filter('plugin_action_links_' . self::plugin_basename(), [__CLASS__, 'filter_plugin_action_links']);
     add_filter('pre_set_site_transient_update_plugins', [__CLASS__, 'filter_update_plugins']);
     add_filter('plugins_api', [__CLASS__, 'filter_plugins_api'], 20, 3);
     add_filter('upgrader_source_selection', [__CLASS__, 'filter_upgrader_source_selection'], 10, 4);
@@ -350,9 +352,23 @@ class Church_Livestream_Switcher {
       'AppleCreek Livestream Switcher',
       'AC Livestream',
       'manage_options',
-      'church-livestream-switcher',
+      self::ADMIN_PAGE_SLUG,
       [__CLASS__, 'settings_page']
     );
+  }
+
+  public static function filter_plugin_action_links($links) {
+    $settingsUrl = add_query_arg(
+      ['page' => self::ADMIN_PAGE_SLUG],
+      admin_url('options-general.php')
+    );
+
+    array_unshift(
+      $links,
+      '<a href="' . esc_url($settingsUrl) . '">' . esc_html__('Settings') . '</a>'
+    );
+
+    return $links;
   }
 
   public static function settings_page() {
