@@ -25,6 +25,7 @@ The switch is controlled by schedule windows so API checks only happen when need
 - Chat visibility toggle for upcoming streams
 - Extensive player appearance and YouTube embed parameter controls
 - Advanced custom embed query parameter override
+- Modular file layout (bootstrap, includes, templates)
 - REST status endpoint for frontend switching and diagnostics
 
 ## How It Works
@@ -56,6 +57,14 @@ Frontend then switches iframe source:
 - YouTube channel ID (`UC...`, not handle format)
 - YouTube Data API v3 key
 - Fallback playlist ID (recommended)
+
+## Project Structure
+
+- `church-livestream-switcher.php`: plugin bootstrap/header + class loader
+- `includes/class-church-livestream-switcher.php`: core logic (settings, API calls, schedule logic, shortcode data prep)
+- `templates/admin/settings-page.php`: admin settings HTML/JS
+- `templates/shortcodes/video.php`: video embed HTML/JS
+- `templates/shortcodes/chat.php`: chat embed HTML/JS
 
 ## Installation
 
@@ -328,4 +337,4 @@ Check:
 
 ## Version
 
-Current plugin header version: `1.5.0`
+Current plugin header version: `1.6.0`
