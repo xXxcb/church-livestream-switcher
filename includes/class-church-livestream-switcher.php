@@ -437,6 +437,22 @@ class Church_Livestream_Switcher {
       $icons['svg'] = $baseUrl . 'icon.svg';
     }
 
+    if (empty($icons['1x']) && !empty($icons['svg'])) {
+      $icons['1x'] = $icons['svg'];
+    }
+    if (empty($icons['2x']) && !empty($icons['svg'])) {
+      $icons['2x'] = $icons['svg'];
+    }
+    if (empty($icons['default'])) {
+      if (!empty($icons['2x'])) {
+        $icons['default'] = $icons['2x'];
+      } elseif (!empty($icons['1x'])) {
+        $icons['default'] = $icons['1x'];
+      } elseif (!empty($icons['svg'])) {
+        $icons['default'] = $icons['svg'];
+      }
+    }
+
     return $icons;
   }
 
@@ -765,6 +781,59 @@ class Church_Livestream_Switcher {
     return $out;
   }
 
+  private static function parse_iso_datetime_to_timestamp($value) {
+    if (!is_string($value) || $value === '') return null;
+    $ts = strtotime($value);
+    if ($ts === false) return null;
+    return intval($ts);
+  }
+
+  private static function pick_best_upcoming_video_id($upcoming) {
+    if (!is_array($upcoming) || empty($upcoming)) return null;
+
+    $nowTs = time();
+    $futureOrNearNow = [];
+    $past = [];
+    $unknown = [];
+
+    foreach ($upcoming as $item) {
+      if (!is_array($item) || empty($item['id'])) continue;
+      $startTs = isset($item['startTs']) && is_int($item['startTs']) ? $item['startTs'] : null;
+
+      if ($startTs === null) {
+        $unknown[] = $item;
+        continue;
+      }
+
+      // Keep events that are about to start (or just started) in the "future" bucket.
+      if ($startTs >= ($nowTs - 300)) {
+        $futureOrNearNow[] = $item;
+      } else {
+        $past[] = $item;
+      }
+    }
+
+    if (!empty($futureOrNearNow)) {
+      usort($futureOrNearNow, function($a, $b) {
+        return intval($a['startTs']) <=> intval($b['startTs']);
+      });
+      return (string) $futureOrNearNow[0]['id'];
+    }
+
+    if (!empty($past)) {
+      usort($past, function($a, $b) {
+        return intval($b['startTs']) <=> intval($a['startTs']);
+      });
+      return (string) $past[0]['id'];
+    }
+
+    if (!empty($unknown)) {
+      return (string) $unknown[0]['id'];
+    }
+
+    return null;
+  }
+
   private static function check_live_or_upcoming_via_api($apiKey, $channelId, $lookback = 15, $uploadsCacheTtl = 86400, $debug = false) {
     $uploads_key = 'cls_uploads_playlist_' . md5($channelId);
     $uploadsPlaylistId = get_transient($uploads_key);
@@ -859,15 +928,19 @@ class Church_Livestream_Switcher {
       }
       if ($lbc === 'upcoming') {
         $start = $v['liveStreamingDetails']['scheduledStartTime'] ?? null;
-        $upcoming[] = ['id' => $vid, 'start' => $start];
+        $upcoming[] = [
+          'id' => $vid,
+          'start' => $start,
+          'startTs' => self::parse_iso_datetime_to_timestamp($start),
+        ];
       }
     }
 
     if ($liveId) return ['mode' => 'live_video', 'videoId' => $liveId];
 
     if (!empty($upcoming)) {
-      usort($upcoming, function($a, $b){ return strcmp((string)$a['start'], (string)$b['start']); });
-      return ['mode' => 'upcoming_video', 'videoId' => $upcoming[0]['id']];
+      $bestUpcomingId = self::pick_best_upcoming_video_id($upcoming);
+      if ($bestUpcomingId) return ['mode' => 'upcoming_video', 'videoId' => $bestUpcomingId];
     }
 
     return self::playlist_result($debug, 'no live or upcoming video found in current lookback window');
