@@ -43,7 +43,7 @@
             });
           }
 
-          function buildSrc(mode, videoId) {
+          function buildSrc(mode, videoId, streamMode) {
             if (mode === 'playlist') {
               if (!PLAYLIST_ID) return '';
               const params = new URLSearchParams();
@@ -62,6 +62,11 @@
               params.set('playlist', videoId);
             }
             applyCustomParams(params);
+            if (streamMode === 'live_video') {
+              params.set('_cls_mode', 'live');
+            } else if (streamMode === 'upcoming_video') {
+              params.set('_cls_mode', 'upcoming');
+            }
             return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
           }
 
@@ -75,6 +80,7 @@
           const YT_IFRAME_API_SRC = 'https://www.youtube.com/iframe_api';
           let ytPlayer = null;
           let ytReadyPromise = null;
+          let lastMode = 'playlist';
 
           function ensureYouTubeApiReady() {
             if (ytReadyPromise) return ytReadyPromise;
@@ -127,18 +133,28 @@
               const data = await res.json();
 
               let nextSrc = playlistSrc;
+              let currentMode = 'playlist';
 
               if (data && data.inWindow && (data.mode === 'live_video' || data.mode === 'upcoming_video') && data.videoId) {
-                nextSrc = buildSrc('video', data.videoId) || playlistSrc;
+                currentMode = data.mode;
+                nextSrc = buildSrc('video', data.videoId, currentMode) || playlistSrc;
               }
 
-              if (nextSrc && frame.src !== nextSrc) {
-                frame.src = nextSrc;
+              if (nextSrc) {
+                const modeChanged = currentMode !== lastMode;
+                const srcChanged = frame.src !== nextSrc;
+
+                if (srcChanged || modeChanged) {
+                  if (!srcChanged && modeChanged) frame.src = 'about:blank';
+                  frame.src = nextSrc;
+                }
               }
+              lastMode = currentMode;
 
               attachEndedFallbackHandler();
             } catch (e) {
               if (playlistSrc && frame.src !== playlistSrc) frame.src = playlistSrc;
+              lastMode = 'playlist';
             }
           }
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AppleCreek Livestream Switcher
  * Description: Automatically switches a YouTube embed between LIVE, UPCOMING ("Starting soon"), and a fallback playlist, based on schedule windows. Includes schedule import/export JSON.
- * Version: 1.7.2
+ * Version: 1.7.3
  * Update URI: https://xanderstudios.pro/plugins/church-livestream-switcher
  * Author: Carlos Burke
  * Author URI: https://xanderstudios.pro

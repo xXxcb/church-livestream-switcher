@@ -11,6 +11,7 @@ class Church_Livestream_Switcher {
   const LOW_QUOTA_POLL_SECONDS = 300;
   const LOW_QUOTA_UPLOADS_TTL_SECONDS = 604800;
   const LOW_QUOTA_LOOKBACK_MAX = 10;
+  const UPCOMING_CACHE_MAX_SECONDS = 30;
 
   public static function init() {
     add_action('admin_menu', [__CLASS__, 'admin_menu']);
@@ -421,6 +422,24 @@ class Church_Livestream_Switcher {
     return defined('CLS_PLUGIN_VERSION') ? (string) CLS_PLUGIN_VERSION : '0.0.0';
   }
 
+  private static function plugin_icons() {
+    $baseDir = trailingslashit(CLS_PLUGIN_DIR) . 'assets/';
+    $baseUrl = trailingslashit(CLS_PLUGIN_URL) . 'assets/';
+    $icons = [];
+
+    if (file_exists($baseDir . 'icon-128x128.png')) {
+      $icons['1x'] = $baseUrl . 'icon-128x128.png';
+    }
+    if (file_exists($baseDir . 'icon-256x256.png')) {
+      $icons['2x'] = $baseUrl . 'icon-256x256.png';
+    }
+    if (file_exists($baseDir . 'icon.svg')) {
+      $icons['svg'] = $baseUrl . 'icon.svg';
+    }
+
+    return $icons;
+  }
+
   private static function github_cache_key($repo, $includePrerelease) {
     return self::GITHUB_RELEASE_TRANSIENT_PREFIX . md5(strtolower(trim((string) $repo)) . '|' . (!empty($includePrerelease) ? '1' : '0'));
   }
@@ -577,6 +596,7 @@ class Church_Livestream_Switcher {
       'new_version' => (string) $release['version'],
       'url' => (string) ($release['html_url'] ?? ''),
       'package' => (string) ($release['download_url'] ?? ''),
+      'icons' => self::plugin_icons(),
     ];
 
     return $transient;
@@ -604,6 +624,7 @@ class Church_Livestream_Switcher {
       'author' => '<a href="https://xanderstudios.pro">Carlos Burke</a>',
       'homepage' => (string) ($release['html_url'] ?? ''),
       'download_link' => (string) ($release['download_url'] ?? ''),
+      'icons' => self::plugin_icons(),
       'sections' => [
         'description' => 'This plugin receives updates from configured GitHub releases.',
         'changelog' => wpautop(esc_html($changelog)),
@@ -691,7 +712,10 @@ class Church_Livestream_Switcher {
     );
 
     if (!$debug) {
-      $ttl = intval($s['cache_ttl_seconds']);
+      $ttl = max(10, intval($s['cache_ttl_seconds']));
+      if (($result['mode'] ?? '') === 'upcoming_video') {
+        $ttl = max(10, min($ttl, self::UPCOMING_CACHE_MAX_SECONDS));
+      }
       if (($result['__error_type'] ?? '') === 'quota') {
         // Quota errors persist until daily reset (midnight PT), so back off aggressively.
         $ttl = max($ttl, self::seconds_until_next_pacific_midnight());
