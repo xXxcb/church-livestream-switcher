@@ -12,6 +12,7 @@ class Church_Livestream_Switcher {
   const LOW_QUOTA_UPLOADS_TTL_SECONDS = 604800;
   const LOW_QUOTA_LOOKBACK_MAX = 10;
   const UPCOMING_CACHE_MAX_SECONDS = 30;
+  const UPCOMING_STALE_GRACE_SECONDS = 900;
 
   public static function init() {
     add_action('admin_menu', [__CLASS__, 'admin_menu']);
@@ -801,23 +802,15 @@ class Church_Livestream_Switcher {
 
     $nowTs = time();
     $futureOrNearNow = [];
-    $past = [];
-    $unknown = [];
 
     foreach ($upcoming as $item) {
       if (!is_array($item) || empty($item['id'])) continue;
       $startTs = isset($item['startTs']) && is_int($item['startTs']) ? $item['startTs'] : null;
+      if ($startTs === null) continue;
 
-      if ($startTs === null) {
-        $unknown[] = $item;
-        continue;
-      }
-
-      // Keep events that are about to start (or just started) in the "future" bucket.
-      if ($startTs >= ($nowTs - 300)) {
+      // Ignore stale "upcoming" entries that should have already started long ago.
+      if ($startTs >= ($nowTs - self::UPCOMING_STALE_GRACE_SECONDS)) {
         $futureOrNearNow[] = $item;
-      } else {
-        $past[] = $item;
       }
     }
 
@@ -826,17 +819,6 @@ class Church_Livestream_Switcher {
         return intval($a['startTs']) <=> intval($b['startTs']);
       });
       return (string) $futureOrNearNow[0]['id'];
-    }
-
-    if (!empty($past)) {
-      usort($past, function($a, $b) {
-        return intval($b['startTs']) <=> intval($a['startTs']);
-      });
-      return (string) $past[0]['id'];
-    }
-
-    if (!empty($unknown)) {
-      return (string) $unknown[0]['id'];
     }
 
     return null;
