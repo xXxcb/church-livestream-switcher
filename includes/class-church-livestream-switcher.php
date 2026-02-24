@@ -12,6 +12,7 @@ class Church_Livestream_Switcher {
   const LOW_QUOTA_UPLOADS_TTL_SECONDS = 604800;
   const LOW_QUOTA_LOOKBACK_MAX = 10;
   const UPCOMING_CACHE_MAX_SECONDS = 30;
+  const LIVE_CACHE_MAX_SECONDS = 20;
   const UPCOMING_STALE_GRACE_SECONDS = 900;
 
   public static function init() {
@@ -740,6 +741,8 @@ class Church_Livestream_Switcher {
       $ttl = max(10, intval($s['cache_ttl_seconds']));
       if (($result['mode'] ?? '') === 'upcoming_video') {
         $ttl = max(10, min($ttl, self::UPCOMING_CACHE_MAX_SECONDS));
+      } elseif (($result['mode'] ?? '') === 'live_video') {
+        $ttl = max(10, min($ttl, self::LIVE_CACHE_MAX_SECONDS));
       }
       if (($result['__error_type'] ?? '') === 'quota') {
         // Quota errors persist until daily reset (midnight PT), so back off aggressively.
