@@ -22,7 +22,10 @@
           const LIVE_PARAMS = <?php echo wp_json_encode($liveParams); ?>;
           const PLAYLIST_PARAMS = <?php echo wp_json_encode($playlistParams); ?>;
           const LOOP_ENABLED = <?php echo wp_json_encode($loopEnabled); ?>;
+          const FORCE_LIVE_AUTOPLAY = <?php echo wp_json_encode(!empty($forceLiveAutoplay)); ?>;
+          const FORCE_CONTROLS_ON_MUTED_LIVE = <?php echo wp_json_encode(!empty($forceControlsOnMutedLive)); ?>;
           const CUSTOM_QUERY = <?php echo wp_json_encode($customQuery); ?>;
+          const LIVE_AUTOPLAY_ENABLED = FORCE_LIVE_AUTOPLAY && <?php echo wp_json_encode(!empty($liveParams['autoplay']) && (string) $liveParams['autoplay'] === '1'); ?>;
 
           const frame = document.getElementById(FRAME_ID);
           if (!frame) return;
@@ -62,6 +65,9 @@
               params.set('playlist', videoId);
             }
             applyCustomParams(params);
+            if (streamMode === 'live_video' && FORCE_CONTROLS_ON_MUTED_LIVE) {
+              params.set('controls', '1');
+            }
             if (streamMode === 'live_video') {
               params.set('_cls_mode', 'live');
             } else if (streamMode === 'upcoming_video') {
@@ -81,6 +87,24 @@
           let ytPlayer = null;
           let ytReadyPromise = null;
           let lastMode = 'playlist';
+          let pendingLiveAutoplay = false;
+
+          function attemptLiveAutoplay() {
+            if (!LIVE_AUTOPLAY_ENABLED || !frame || !frame.contentWindow) return;
+            try {
+              frame.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: 'playVideo',
+                args: []
+              }), '*');
+            } catch (e) {}
+          }
+
+          frame.addEventListener('load', function() {
+            if (!pendingLiveAutoplay) return;
+            setTimeout(attemptLiveAutoplay, 250);
+            setTimeout(attemptLiveAutoplay, 1000);
+          });
 
           function ensureYouTubeApiReady() {
             if (ytReadyPromise) return ytReadyPromise;
@@ -148,6 +172,12 @@
                   if (!srcChanged && modeChanged) frame.src = 'about:blank';
                   frame.src = nextSrc;
                 }
+              }
+
+              pendingLiveAutoplay = currentMode === 'live_video';
+              if (pendingLiveAutoplay) {
+                setTimeout(attemptLiveAutoplay, 500);
+                setTimeout(attemptLiveAutoplay, 1500);
               }
               lastMode = currentMode;
 

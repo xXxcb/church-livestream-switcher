@@ -53,6 +53,7 @@ class Church_Livestream_Switcher {
       'player_allowfullscreen' => 1,
       'player_controls' => 1,
       'player_autoplay_live' => 1,
+      'player_force_live_autoplay' => 1,
       'player_autoplay_playlist' => 0,
       'player_mute_live' => 1,
       'player_mute_playlist' => 0,
@@ -134,6 +135,7 @@ class Church_Livestream_Switcher {
 
     $out['player_controls'] = !empty($input['player_controls']) ? 1 : 0;
     $out['player_autoplay_live'] = !empty($input['player_autoplay_live']) ? 1 : 0;
+    $out['player_force_live_autoplay'] = !empty($input['player_force_live_autoplay']) ? 1 : 0;
     $out['player_autoplay_playlist'] = !empty($input['player_autoplay_playlist']) ? 1 : 0;
     $out['player_mute_live'] = !empty($input['player_mute_live']) ? 1 : 0;
     $out['player_mute_playlist'] = !empty($input['player_mute_playlist']) ? 1 : 0;
@@ -153,6 +155,12 @@ class Church_Livestream_Switcher {
     $out['player_origin_mode'] = isset($input['player_origin_mode']) ? self::sanitize_choice($input['player_origin_mode'], ['auto', 'off', 'custom'], $d['player_origin_mode']) : $d['player_origin_mode'];
     $out['player_origin_custom'] = isset($input['player_origin_custom']) ? self::sanitize_origin_url($input['player_origin_custom']) : $d['player_origin_custom'];
     $out['player_custom_params'] = isset($input['player_custom_params']) ? self::sanitize_embed_query_string($input['player_custom_params']) : $d['player_custom_params'];
+
+    // Accessibility safeguard: if live audio starts muted, keep controls visible so viewers can unmute.
+    if (!empty($out['player_mute_live'])) {
+      $out['player_controls'] = 1;
+    }
+
     $out['github_updates_enabled'] = !empty($input['github_updates_enabled']) ? 1 : 0;
     $out['github_repo'] = isset($input['github_repo']) ? self::sanitize_github_repo($input['github_repo']) : $d['github_repo'];
     $githubTokenInput = isset($input['github_token']) ? sanitize_text_field((string) $input['github_token']) : '';
@@ -1083,6 +1091,8 @@ class Church_Livestream_Switcher {
     $playlistParams['mute'] = !empty($s['player_mute_playlist']) ? '1' : '0';
 
     $loopEnabled = !empty($s['player_loop']);
+    $forceLiveAutoplay = !empty($s['player_force_live_autoplay']);
+    $forceControlsOnMutedLive = !empty($s['player_mute_live']);
     $customQuery = self::sanitize_embed_query_string((string) ($s['player_custom_params'] ?? ''));
 
     $wrapperStyles = [
@@ -1127,6 +1137,8 @@ class Church_Livestream_Switcher {
       'liveParams' => $liveParams,
       'playlistParams' => $playlistParams,
       'loopEnabled' => $loopEnabled,
+      'forceLiveAutoplay' => $forceLiveAutoplay,
+      'forceControlsOnMutedLive' => $forceControlsOnMutedLive,
       'customQuery' => $customQuery,
       'statusUrl' => esc_url_raw(rest_url('church-live/v1/status')),
     ], false);

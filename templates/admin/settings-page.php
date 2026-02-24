@@ -284,11 +284,24 @@
           <table class="form-table" role="presentation">
             <tr>
               <th scope="row"><label for="cls_player_controls">Show controls</label></th>
-              <td><input id="cls_player_controls" name="<?php echo esc_attr($optKey); ?>[player_controls]" type="checkbox" value="1" <?php checked(!empty($s['player_controls'])); ?> /></td>
+              <td>
+                <input id="cls_player_controls" name="<?php echo esc_attr($optKey); ?>[player_controls]" type="checkbox" value="1" <?php checked(!empty($s['player_controls'])); ?> />
+                <p class="description">When <code>Mute live video</code> is enabled, controls are forced on for live streams so viewers can unmute.</p>
+              </td>
             </tr>
             <tr>
               <th scope="row"><label for="cls_player_autoplay_live">Autoplay live video</label></th>
               <td><input id="cls_player_autoplay_live" name="<?php echo esc_attr($optKey); ?>[player_autoplay_live]" type="checkbox" value="1" <?php checked(!empty($s['player_autoplay_live'])); ?> /></td>
+            </tr>
+            <tr>
+              <th scope="row"><label for="cls_player_force_live_autoplay">Force autoplay on live transition</label></th>
+              <td>
+                <label>
+                  <input id="cls_player_force_live_autoplay" name="<?php echo esc_attr($optKey); ?>[player_force_live_autoplay]" type="checkbox" value="1" <?php checked(!empty($s['player_force_live_autoplay'])); ?> />
+                  Send a JS play command when status switches to <code>live_video</code>.
+                </label>
+                <p class="description">Use this if autoplay is inconsistent on transition from upcoming to live. Works best when live video is muted.</p>
+              </td>
             </tr>
             <tr>
               <th scope="row"><label for="cls_player_mute_live">Mute live video</label></th>
