@@ -15,6 +15,7 @@ class Church_Livestream_Switcher {
   const LIVE_CACHE_MAX_SECONDS = 20;
   const UPCOMING_STALE_GRACE_SECONDS = 900;
 
+  // Bootstrap all hooks, shortcodes, and REST wiring for the plugin.
   public static function init() {
     add_action('admin_menu', [__CLASS__, 'admin_menu']);
     add_action('admin_init', [__CLASS__, 'register_settings']);
@@ -27,6 +28,7 @@ class Church_Livestream_Switcher {
     add_filter('upgrader_source_selection', [__CLASS__, 'filter_upgrader_source_selection'], 10, 4);
   }
 
+  // Return default settings array used when no user values exist.
   public static function defaults() {
     return [
       'enabled' => 1,
@@ -87,11 +89,13 @@ class Church_Livestream_Switcher {
     ];
   }
 
+  // Fetch saved settings merged with defaults.
   public static function get_settings() {
     $saved = get_option(self::OPT_KEY, []);
     return wp_parse_args(is_array($saved) ? $saved : [], self::defaults());
   }
 
+  // Register the settings array with WordPress.
   public static function register_settings() {
     register_setting('cls_group', self::OPT_KEY, [
       'type' => 'array',
@@ -100,6 +104,7 @@ class Church_Livestream_Switcher {
     ]);
   }
 
+  // Sanitize and normalize all settings fields on save.
   public static function sanitize_settings($input) {
     $d = self::defaults();
     $existing = self::get_settings();
@@ -204,6 +209,7 @@ class Church_Livestream_Switcher {
     return wp_parse_args($out, $d);
   }
 
+  // Validate GitHub repo string in owner/repo format.
   private static function sanitize_github_repo($value) {
     $clean = trim((string) $value);
     if ($clean === '') return '';
@@ -211,6 +217,7 @@ class Church_Livestream_Switcher {
     return $clean;
   }
 
+  // Return a masked preview of a secret value, preserving only the tail.
   private static function masked_secret_preview($value, $visibleTail = 4) {
     $raw = trim((string) $value);
     if ($raw === '') return 'Not set';
@@ -222,21 +229,25 @@ class Church_Livestream_Switcher {
     return str_repeat('*', max(8, $len - $tail)) . substr($raw, -$tail);
   }
 
+  // Sanitize text, falling back to default when empty.
   private static function sanitize_text_or_default($value, $default) {
     $clean = sanitize_text_field((string) $value);
     return $clean !== '' ? $clean : $default;
   }
 
+  // Ensure a value is within an allowed list, else return default.
   private static function sanitize_choice($value, $allowed, $default) {
     $clean = sanitize_text_field((string) $value);
     return in_array($clean, $allowed, true) ? $clean : $default;
   }
 
+  // Sanitize a hex color or fall back to default.
   private static function sanitize_hex_or_default($value, $default) {
     $clean = sanitize_hex_color((string) $value);
     return $clean ? $clean : $default;
   }
 
+  // Parse aspect ratio strings like 16:9; return default on failure.
   private static function sanitize_aspect_ratio($value, $default = '16:9') {
     $raw = trim((string) $value);
     if (preg_match('/^(\d{1,3})\s*[:\/]\s*(\d{1,3})$/', $raw, $m)) {
@@ -247,6 +258,7 @@ class Church_Livestream_Switcher {
     return $default;
   }
 
+  // Convert a ratio string to CSS padding-top percentage.
   private static function aspect_ratio_to_padding_percent($ratio) {
     if (!is_string($ratio) || !preg_match('/^(\d{1,3}):(\d{1,3})$/', trim($ratio), $m)) return 56.25;
     $w = intval($m[1]);
@@ -255,12 +267,14 @@ class Church_Livestream_Switcher {
     return round(($h / $w) * 100, 4);
   }
 
+  // Sanitize a space-delimited list of CSS classes.
   private static function sanitize_class_list($value) {
     $clean = preg_replace('/[^A-Za-z0-9_\-\s]/', '', (string) $value);
     $clean = preg_replace('/\s+/', ' ', trim((string) $clean));
     return $clean ?: '';
   }
 
+  // Validate BCP 47 language tag format.
   private static function sanitize_lang_tag($value) {
     $clean = trim((string) $value);
     if ($clean === '') return '';
@@ -268,6 +282,7 @@ class Church_Livestream_Switcher {
     return $clean;
   }
 
+  // Supported referrer policy values for the player iframe.
   private static function referrer_policies() {
     return [
       '',
@@ -282,6 +297,7 @@ class Church_Livestream_Switcher {
     ];
   }
 
+  // Extract and normalize origin (scheme://host[:port]) from a URL.
   private static function sanitize_origin_url($value) {
     $url = esc_url_raw(trim((string) $value), ['http', 'https']);
     if (!$url) return '';
@@ -294,10 +310,12 @@ class Church_Livestream_Switcher {
     return $origin;
   }
 
+  // Compute the site home origin for use in iframe origin param.
   private static function normalize_home_origin() {
     return self::sanitize_origin_url(home_url('/'));
   }
 
+  // Clean an arbitrary query string for safe embed overrides.
   private static function sanitize_embed_query_string($value) {
     $raw = ltrim(trim((string) $value), '?&');
     if ($raw === '') return '';
@@ -317,6 +335,7 @@ class Church_Livestream_Switcher {
     return http_build_query($clean, '', '&', PHP_QUERY_RFC3986);
   }
 
+  // Validate and normalize weekly schedule rows.
   private static function sanitize_schedule($schedule) {
     $clean = [];
     if (!is_array($schedule)) return $clean;
@@ -336,6 +355,7 @@ class Church_Livestream_Switcher {
     return $clean;
   }
 
+  // Validate and normalize one-time event rows.
   private static function sanitize_one_time_events($events) {
     $clean = [];
     if (!is_array($events)) return $clean;
@@ -358,6 +378,7 @@ class Church_Livestream_Switcher {
     return $clean;
   }
 
+  // Register the settings page under WordPress options.
   public static function admin_menu() {
     add_options_page(
       'AppleCreek Livestream Switcher',
@@ -368,6 +389,7 @@ class Church_Livestream_Switcher {
     );
   }
 
+  // Add Settings link to the plugin row on Plugins page.
   public static function filter_plugin_action_links($links) {
     $settingsUrl = add_query_arg(
       ['page' => self::ADMIN_PAGE_SLUG],
@@ -382,6 +404,7 @@ class Church_Livestream_Switcher {
     return $links;
   }
 
+  // Render the admin settings page.
   public static function settings_page() {
     if (!current_user_can('manage_options')) return;
     $settings = self::get_settings();
@@ -402,6 +425,7 @@ class Church_Livestream_Switcher {
     self::render_template('admin/settings-page.php', $templateVars, true);
   }
 
+  // Render a template file with extracted variables.
   private static function render_template($relativePath, $vars = [], $echo = false) {
     $templateFile = trailingslashit(CLS_PLUGIN_DIR) . 'templates/' . ltrim((string) $relativePath, '/');
     if (!file_exists($templateFile)) return '';
@@ -418,20 +442,24 @@ class Church_Livestream_Switcher {
     return $html;
   }
 
+  // Return plugin basename (path used by WP).
   private static function plugin_basename() {
     return plugin_basename(CLS_PLUGIN_FILE);
   }
 
+  // Compute the plugin slug from basename.
   private static function plugin_slug() {
     $base = self::plugin_basename();
     $dir = dirname($base);
     return ($dir === '.' || $dir === DIRECTORY_SEPARATOR) ? basename($base, '.php') : $dir;
   }
 
+  // Get current plugin version constant or fallback.
   private static function plugin_version() {
     return defined('CLS_PLUGIN_VERSION') ? (string) CLS_PLUGIN_VERSION : '0.0.0';
   }
 
+  // Build array of available plugin icon URLs for updater.
   private static function plugin_icons() {
     $baseDir = trailingslashit(CLS_PLUGIN_DIR) . 'assets/';
     $baseUrl = trailingslashit(CLS_PLUGIN_URL) . 'assets/';
@@ -466,16 +494,19 @@ class Church_Livestream_Switcher {
     return $icons;
   }
 
+  // Key helper for GitHub release transient storage.
   private static function github_cache_key($repo, $includePrerelease) {
     return self::GITHUB_RELEASE_TRANSIENT_PREFIX . md5(strtolower(trim((string) $repo)) . '|' . (!empty($includePrerelease) ? '1' : '0'));
   }
 
+  // Clear cached GitHub release metadata for a repo.
   private static function delete_github_release_cache($repo, $includePrerelease) {
     $repo = self::sanitize_github_repo($repo);
     if ($repo === '') return;
     delete_transient(self::github_cache_key($repo, $includePrerelease));
   }
 
+  // Strip leading v and unsafe chars from a release tag.
   private static function normalize_release_version($tag) {
     $version = trim((string) $tag);
     if (preg_match('/^v(?=\d)/i', $version)) {
@@ -485,6 +516,7 @@ class Church_Livestream_Switcher {
     return trim((string) $version);
   }
 
+  // Choose a suitable release entry from GitHub API payload.
   private static function pick_github_release($payload, $includePrerelease) {
     if (is_array($payload) && isset($payload['tag_name'])) {
       return $payload;
@@ -501,6 +533,7 @@ class Church_Livestream_Switcher {
     return null;
   }
 
+  // Pick the appropriate ZIP download URL from a GitHub release.
   private static function select_release_package_url($release, $assetName = '') {
     $assetName = trim((string) $assetName);
     $assets = (is_array($release) && !empty($release['assets']) && is_array($release['assets'])) ? $release['assets'] : [];
@@ -527,6 +560,7 @@ class Church_Livestream_Switcher {
     return $zipball !== '' ? $zipball : '';
   }
 
+  // Call GitHub API to fetch the newest release metadata.
   private static function fetch_github_release_from_api($settings) {
     $repo = self::sanitize_github_repo($settings['github_repo'] ?? '');
     if ($repo === '') return null;
@@ -575,6 +609,7 @@ class Church_Livestream_Switcher {
     ];
   }
 
+  // Retrieve release metadata from cache or GitHub.
   private static function get_github_release($settings, $force = false) {
     $repo = self::sanitize_github_repo($settings['github_repo'] ?? '');
     if ($repo === '') return null;
@@ -599,6 +634,7 @@ class Church_Livestream_Switcher {
     return null;
   }
 
+  // Supply GitHub-based update info to WP core.
   public static function filter_update_plugins($transient) {
     if (!is_object($transient) || empty($transient->checked) || !is_array($transient->checked)) return $transient;
 
@@ -628,6 +664,7 @@ class Church_Livestream_Switcher {
     return $transient;
   }
 
+  // Provide plugin info (including changelog) from GitHub to WP installer UI.
   public static function filter_plugins_api($result, $action, $args) {
     if ($action !== 'plugin_information' || !is_object($args)) return $result;
 
@@ -658,6 +695,7 @@ class Church_Livestream_Switcher {
     ];
   }
 
+  // Normalize extracted upgrade directory to expected slug.
   public static function filter_upgrader_source_selection($source, $remote_source, $upgrader, $hook_extra = []) {
     if (!is_array($hook_extra)) return $source;
     if (empty($hook_extra['plugin'])) return $source;
@@ -679,6 +717,7 @@ class Church_Livestream_Switcher {
     return $expected;
   }
 
+  // Register REST endpoint for live status polling.
   public static function register_rest() {
     register_rest_route('church-live/v1', '/status', [
       'methods' => 'GET',
@@ -687,6 +726,7 @@ class Church_Livestream_Switcher {
     ]);
   }
 
+  // REST callback: returns current live/upcoming/playlist status JSON.
   public static function rest_status() {
     $s = self::apply_low_quota_profile(self::get_settings());
     $debug = isset($_GET['debug']) && sanitize_text_field((string)$_GET['debug']) === '1';
@@ -756,6 +796,7 @@ class Church_Livestream_Switcher {
     return array_merge(['inWindow' => true], $publicResult);
   }
 
+  // Calculate seconds until the next midnight PT (used for quota backoff).
   private static function seconds_until_next_pacific_midnight() {
     try {
       $pt = new DateTimeZone('America/Los_Angeles');
@@ -771,6 +812,7 @@ class Church_Livestream_Switcher {
     }
   }
 
+  // Apply quota-safe minimums/caps when Low Quota Mode is enabled.
   private static function apply_low_quota_profile($settings) {
     if (!is_array($settings) || empty($settings['low_quota_mode'])) return $settings;
 
@@ -782,6 +824,7 @@ class Church_Livestream_Switcher {
     return $settings;
   }
 
+  // Helper to build a playlist mode response with optional error info.
   private static function playlist_result($debug = false, $error = '', $errorType = '') {
     $out = ['mode' => 'playlist', 'videoId' => null];
     if (is_string($errorType) && $errorType !== '') {
@@ -793,6 +836,7 @@ class Church_Livestream_Switcher {
     return $out;
   }
 
+  // Convert an ISO datetime string to a Unix timestamp or null.
   private static function parse_iso_datetime_to_timestamp($value) {
     if (!is_string($value) || $value === '') return null;
     $ts = strtotime($value);
@@ -800,6 +844,7 @@ class Church_Livestream_Switcher {
     return intval($ts);
   }
 
+  // Select the nearest valid upcoming video id, ignoring stale entries.
   private static function pick_best_upcoming_video_id($upcoming) {
     if (!is_array($upcoming) || empty($upcoming)) return null;
 
@@ -827,6 +872,7 @@ class Church_Livestream_Switcher {
     return null;
   }
 
+  // Query YouTube Data API to detect live or upcoming video for a channel.
   private static function check_live_or_upcoming_via_api($apiKey, $channelId, $lookback = 15, $uploadsCacheTtl = 86400, $debug = false) {
     $uploads_key = 'cls_uploads_playlist_' . md5($channelId);
     $uploadsPlaylistId = get_transient($uploads_key);
@@ -939,6 +985,7 @@ class Church_Livestream_Switcher {
     return self::playlist_result($debug, 'no live or upcoming video found in current lookback window');
   }
 
+  // Determine if current time falls inside any schedule/one-time window.
   private static function is_in_schedule_window($s) {
     $tz = !empty($s['timezone']) ? $s['timezone'] : 'UTC';
     try { $dtz = new DateTimeZone($tz); } catch (Exception $e) { $dtz = new DateTimeZone('UTC'); }
@@ -996,6 +1043,7 @@ class Church_Livestream_Switcher {
     return false;
   }
 
+  // Convert HH:MM string to minutes since midnight.
   private static function hhmm_to_minutes($hhmm) {
     if (!is_string($hhmm) || !preg_match('/^\d{2}:\d{2}$/', $hhmm)) return null;
     [$h, $m] = array_map('intval', explode(':', $hhmm));
@@ -1003,6 +1051,7 @@ class Church_Livestream_Switcher {
     return $h * 60 + $m;
   }
 
+  // Video shortcode handler: renders the switching player iframe.
   public static function shortcode($atts) {
     $s = self::apply_low_quota_profile(self::get_settings());
     $playlistId = $s['playlist_id'];
@@ -1129,6 +1178,7 @@ class Church_Livestream_Switcher {
     ], false);
   }
 
+  // Chat shortcode handler tied to the same status endpoint.
   public static function shortcode_chat($atts) {
     $s = self::apply_low_quota_profile(self::get_settings());
     $poll = intval($s['poll_interval_seconds']);
