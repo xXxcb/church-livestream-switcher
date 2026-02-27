@@ -25,6 +25,7 @@
           const FORCE_LIVE_AUTOPLAY = <?php echo wp_json_encode(!empty($forceLiveAutoplay)); ?>;
           const FORCE_CONTROLS_ON_MUTED_LIVE = <?php echo wp_json_encode(!empty($forceControlsOnMutedLive)); ?>;
           const CUSTOM_QUERY = <?php echo wp_json_encode($customQuery); ?>;
+          const STATUS_PATH = <?php echo wp_json_encode($statusPath); ?>;
           const LIVE_AUTOPLAY_ENABLED = FORCE_LIVE_AUTOPLAY && <?php echo wp_json_encode(!empty($liveParams['autoplay']) && (string) $liveParams['autoplay'] === '1'); ?>;
 
           const frame = document.getElementById(FRAME_ID);
@@ -151,9 +152,19 @@
               .catch(() => {});
           }
 
+          function buildStatusUrl() {
+            const url = new URL(STATUS_PATH || '/wp-json/church-live/v1/status', window.location.origin);
+            url.searchParams.set('_cls', Date.now().toString());
+            return url.toString();
+          }
+
           async function refresh() {
             try {
-              const res = await fetch(<?php echo wp_json_encode($statusUrl); ?>, { cache: 'no-store' });
+              const res = await fetch(buildStatusUrl(), {
+                cache: 'no-store',
+                credentials: 'same-origin',
+              });
+              if (!res.ok) throw new Error('status request failed');
               const data = await res.json();
 
               let nextSrc = playlistSrc;

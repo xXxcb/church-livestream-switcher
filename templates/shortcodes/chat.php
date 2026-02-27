@@ -16,6 +16,7 @@
           const SHOW_UPCOMING_CHAT = <?php echo wp_json_encode($showUpcoming); ?>;
           const POLL_SECONDS = <?php echo wp_json_encode($poll); ?>;
           const EMBED_DOMAIN = <?php echo wp_json_encode($embedDomain); ?>;
+          const STATUS_PATH = <?php echo wp_json_encode($statusPath); ?>;
           const frame = document.getElementById(<?php echo wp_json_encode($frameId); ?>);
           const offline = document.getElementById(<?php echo wp_json_encode($offlineId); ?>);
 
@@ -41,6 +42,12 @@
             return false;
           }
 
+          function buildStatusUrl() {
+            const url = new URL(STATUS_PATH || '/wp-json/church-live/v1/status', window.location.origin);
+            url.searchParams.set('_cls', Date.now().toString());
+            return url.toString();
+          }
+
           async function refresh() {
             if (!SWITCHING_ENABLED) {
               showOffline();
@@ -48,7 +55,11 @@
             }
 
             try {
-              const res = await fetch(<?php echo wp_json_encode($statusUrl); ?>, { cache: 'no-store' });
+              const res = await fetch(buildStatusUrl(), {
+                cache: 'no-store',
+                credentials: 'same-origin',
+              });
+              if (!res.ok) throw new Error('status request failed');
               const data = await res.json();
               if (canShowChatForStatus(data)) {
                 showChat(data.videoId);

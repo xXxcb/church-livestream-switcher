@@ -1051,6 +1051,16 @@ class Church_Livestream_Switcher {
     return $h * 60 + $m;
   }
 
+  // Build a same-origin REST path to avoid host alias mismatches in browser fetch calls.
+  private static function rest_status_path() {
+    $url = rest_url('church-live/v1/status');
+    $path = wp_parse_url($url, PHP_URL_PATH);
+    if (!is_string($path) || $path === '') return '/wp-json/church-live/v1/status';
+    $query = wp_parse_url($url, PHP_URL_QUERY);
+    if (is_string($query) && $query !== '') $path .= '?' . $query;
+    return $path;
+  }
+
   // Video shortcode handler: renders the switching player iframe.
   public static function shortcode($atts) {
     $s = self::apply_low_quota_profile(self::get_settings());
@@ -1174,7 +1184,7 @@ class Church_Livestream_Switcher {
       'forceLiveAutoplay' => $forceLiveAutoplay,
       'forceControlsOnMutedLive' => $forceControlsOnMutedLive,
       'customQuery' => $customQuery,
-      'statusUrl' => esc_url_raw(rest_url('church-live/v1/status')),
+      'statusPath' => self::rest_status_path(),
     ], false);
   }
 
@@ -1208,7 +1218,7 @@ class Church_Livestream_Switcher {
       'showUpcoming' => $showUpcoming,
       'poll' => $poll,
       'embedDomain' => $embedDomain,
-      'statusUrl' => esc_url_raw(rest_url('church-live/v1/status')),
+      'statusPath' => self::rest_status_path(),
     ], false);
   }
 }
