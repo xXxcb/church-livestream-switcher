@@ -1495,6 +1495,28 @@ class Church_Livestream_Switcher {
     $loopEnabled = !empty($s['player_loop']);
     $forceLiveAutoplay = !empty($s['player_force_live_autoplay']);
     $customQuery = self::sanitize_embed_query_string((string) ($s['player_custom_params'] ?? ''));
+    $initialSrc = 'about:blank';
+    if ($playlistId !== '') {
+      $initialParams = $playlistParams;
+      if ($loopEnabled) $initialParams['loop'] = '1';
+      $initialParams['list'] = $playlistId;
+      if ($customQuery !== '') {
+        parse_str($customQuery, $customParamsArray);
+        if (is_array($customParamsArray)) {
+          foreach ($customParamsArray as $k => $v) {
+            if (!is_string($k) || $k === '') continue;
+            if (is_array($v)) {
+              $first = reset($v);
+              if ($first === false || $first === null) continue;
+              $initialParams[$k] = (string) $first;
+            } else {
+              $initialParams[$k] = (string) $v;
+            }
+          }
+        }
+      }
+      $initialSrc = 'https://www.youtube.com/embed/videoseries?' . http_build_query($initialParams, '', '&', PHP_QUERY_RFC3986);
+    }
 
     $wrapperStyles = [
       'position:relative',
@@ -1527,6 +1549,7 @@ class Church_Livestream_Switcher {
       'frameId' => $frameId,
       'iframeClasses' => $iframeClasses,
       'frameStyle' => $frameStyle,
+      'initialSrc' => $initialSrc,
       'frameTitle' => $frameTitle,
       'loading' => $loading,
       'allow' => $allow,

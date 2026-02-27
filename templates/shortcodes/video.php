@@ -3,7 +3,7 @@
           id="<?php echo esc_attr($frameId); ?>"
           class="<?php echo esc_attr($iframeClasses); ?>"
           style="<?php echo esc_attr($frameStyle); ?>"
-          src="about:blank"
+          src="<?php echo esc_url($initialSrc ?? 'about:blank'); ?>"
           title="<?php echo esc_attr($frameTitle); ?>"
           loading="<?php echo esc_attr($loading); ?>"
           frameborder="0"
@@ -85,9 +85,15 @@
           }
 
           const playlistSrc = buildSrc('playlist');
+          const channelLiveSrc = buildSrc('video', '', 'live_video');
+          const baseFallbackSrc = playlistSrc || channelLiveSrc;
+
+          if (baseFallbackSrc && frame.src !== baseFallbackSrc) {
+            frame.src = baseFallbackSrc;
+          }
 
           if (!SWITCHING_ENABLED) {
-            if (playlistSrc && frame.src !== playlistSrc) frame.src = playlistSrc;
+            if (baseFallbackSrc && frame.src !== baseFallbackSrc) frame.src = baseFallbackSrc;
             return;
           }
 
@@ -235,16 +241,20 @@
               const data = await res.json();
               consecutiveErrors = 0;
 
-              let nextSrc = playlistSrc;
+              let nextSrc = baseFallbackSrc;
               let currentMode = 'playlist';
               let holdCurrentVideo = false;
 
-              if (data && data.inWindow && data.mode === 'live_video' && data.videoId) {
+              if (data && data.inWindow && data.mode === 'live_video') {
                 currentMode = data.mode;
-                nextSrc = buildSrc('video', data.videoId, currentMode) || playlistSrc;
+                nextSrc = buildSrc('video', (data.videoId || ''), currentMode) || baseFallbackSrc;
                 lastVideoSeenAt = Date.now();
                 playlistConfirmations = 0;
-                storeVideoStatus(currentMode, data.videoId);
+                if (data.videoId) {
+                  storeVideoStatus(currentMode, data.videoId);
+                } else {
+                  clearStoredVideoStatus();
+                }
               } else if (data && data.inWindow && data.mode === 'upcoming_video' && data.videoId) {
                 // Upcoming embeds frequently render black; keep playlist until LIVE is confirmed.
                 playlistConfirmations = 0;
@@ -282,7 +292,7 @@
             } catch (e) {
               consecutiveErrors += 1;
               if (lastMode !== 'playlist' && consecutiveErrors < ERROR_FALLBACK_THRESHOLD) return;
-              if (playlistSrc && frame.src !== playlistSrc) frame.src = playlistSrc;
+              if (baseFallbackSrc && frame.src !== baseFallbackSrc) frame.src = baseFallbackSrc;
               lastMode = 'playlist';
               pendingLiveAutoplay = false;
               playlistConfirmations = 0;
