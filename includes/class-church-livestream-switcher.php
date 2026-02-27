@@ -836,7 +836,7 @@ class Church_Livestream_Switcher {
       $ttl = max(10, intval($s['cache_ttl_seconds']));
       $mode = (string) ($result['mode'] ?? '');
 
-      if (self::is_video_mode_with_id($result)) {
+      if (self::is_live_mode_with_id($result)) {
         self::store_last_good_status($result);
       } elseif ($mode === 'playlist') {
         $lastGood = self::get_recent_last_good_status();
@@ -847,7 +847,7 @@ class Church_Livestream_Switcher {
           $tracked = self::get_last_good_status(self::LAST_GOOD_TRACK_MAX_SECONDS);
           if (is_array($tracked)) {
             $verified = self::check_video_mode_by_id($s['api_key'], (string) $tracked['videoId'], $debug);
-            if (self::is_video_mode_with_id($verified)) {
+            if (self::is_live_mode_with_id($verified)) {
               $result = [
                 'mode' => (string) $verified['mode'],
                 'videoId' => (string) $verified['videoId'],
@@ -857,7 +857,7 @@ class Church_Livestream_Switcher {
             } elseif (!empty($verified['__verified'])) {
               self::clear_last_good_status();
             } else {
-              // If direct verification fails transiently, keep last tracked stream to avoid viewer flapping.
+              // If direct verification fails transiently, keep last tracked LIVE stream to avoid viewer flapping.
               $result = [
                 'mode' => (string) $tracked['mode'],
                 'videoId' => (string) $tracked['videoId'],
@@ -896,18 +896,18 @@ class Church_Livestream_Switcher {
     return $response;
   }
 
-  // Validate a public video status payload shape.
-  private static function is_video_mode_with_id($status) {
+  // Validate a LIVE status payload with a usable video id.
+  private static function is_live_mode_with_id($status) {
     if (!is_array($status)) return false;
     $mode = isset($status['mode']) ? (string) $status['mode'] : '';
-    if (!in_array($mode, ['live_video', 'upcoming_video'], true)) return false;
+    if ($mode !== 'live_video') return false;
     $videoId = isset($status['videoId']) ? trim((string) $status['videoId']) : '';
     return $videoId !== '';
   }
 
   // Persist the last known good live/upcoming status for short-term fallback.
   private static function store_last_good_status($status) {
-    if (!self::is_video_mode_with_id($status)) return;
+    if (!self::is_live_mode_with_id($status)) return;
     $mode = (string) $status['mode'];
     $videoId = trim((string) $status['videoId']);
     set_transient(self::LAST_GOOD_TRANSIENT_KEY, [
@@ -925,7 +925,11 @@ class Church_Livestream_Switcher {
   // Return last known good status bounded by age.
   private static function get_last_good_status($maxAgeSeconds = 0) {
     $last = get_transient(self::LAST_GOOD_TRANSIENT_KEY);
-    if (!is_array($last) || !self::is_video_mode_with_id($last)) return null;
+    if (!is_array($last)) return null;
+    if (!self::is_live_mode_with_id($last)) {
+      self::clear_last_good_status();
+      return null;
+    }
     $savedAt = isset($last['savedAt']) ? intval($last['savedAt']) : 0;
     if ($savedAt <= 0) return null;
     if (intval($maxAgeSeconds) > 0 && (time() - $savedAt) > intval($maxAgeSeconds)) return null;

@@ -176,7 +176,7 @@
               const mode = typeof parsed.mode === 'string' ? parsed.mode : '';
               const videoId = typeof parsed.videoId === 'string' ? parsed.videoId : '';
               const savedAt = Number(parsed.savedAt || 0);
-              if ((mode !== 'live_video' && mode !== 'upcoming_video') || !videoId || !Number.isFinite(savedAt)) return null;
+              if (mode !== 'live_video' || !videoId || !Number.isFinite(savedAt)) return null;
               if ((Date.now() - savedAt) > LAST_VIDEO_MAX_AGE_MS) return null;
               return { mode, videoId };
             } catch (e) {
@@ -185,7 +185,7 @@
           }
 
           function storeVideoStatus(mode, videoId) {
-            if ((mode !== 'live_video' && mode !== 'upcoming_video') || !videoId) return;
+            if (mode !== 'live_video' || !videoId) return;
             try {
               if (!window.localStorage) return;
               window.localStorage.setItem(LAST_VIDEO_STORAGE_KEY, JSON.stringify({
@@ -232,12 +232,16 @@
               let currentMode = 'playlist';
               let holdCurrentVideo = false;
 
-              if (data && data.inWindow && (data.mode === 'live_video' || data.mode === 'upcoming_video') && data.videoId) {
+              if (data && data.inWindow && data.mode === 'live_video' && data.videoId) {
                 currentMode = data.mode;
                 nextSrc = buildSrc('video', data.videoId, currentMode) || playlistSrc;
                 lastVideoSeenAt = Date.now();
                 playlistConfirmations = 0;
                 storeVideoStatus(currentMode, data.videoId);
+              } else if (data && data.inWindow && data.mode === 'upcoming_video' && data.videoId) {
+                // Upcoming embeds frequently render black; keep playlist until LIVE is confirmed.
+                playlistConfirmations = 0;
+                clearStoredVideoStatus();
               } else {
                 playlistConfirmations += 1;
                 const outsideWindow = !!(data && data.inWindow === false);
