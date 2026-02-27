@@ -17,6 +17,7 @@ class Church_Livestream_Switcher {
   const UPCOMING_STALE_GRACE_SECONDS = 900;
   const LAST_GOOD_TRANSIENT_KEY = 'cls_live_last_good';
   const LAST_GOOD_GRACE_SECONDS = 300;
+  const LAST_GOOD_TRACK_MAX_SECONDS = 21600;
 
   // Bootstrap all hooks, shortcodes, and REST wiring for the plugin.
   public static function init() {
@@ -207,7 +208,7 @@ class Church_Livestream_Switcher {
     }
 
     delete_transient(self::TRANSIENT_KEY);
-    delete_transient(self::LAST_GOOD_TRANSIENT_KEY);
+    self::clear_last_good_status();
     self::delete_github_release_cache($d['github_repo'], !empty($d['github_include_prerelease']));
     self::delete_github_release_cache($out['github_repo'], !empty($out['github_include_prerelease']));
     return wp_parse_args($out, $d);
@@ -792,6 +793,28 @@ class Church_Livestream_Switcher {
         if (is_array($lastGood)) {
           $result = $lastGood;
           $mode = (string) ($result['mode'] ?? '');
+        } else {
+          $tracked = self::get_last_good_status(self::LAST_GOOD_TRACK_MAX_SECONDS);
+          if (is_array($tracked)) {
+            $verified = self::check_video_mode_by_id($s['api_key'], (string) $tracked['videoId'], $debug);
+            if (self::is_video_mode_with_id($verified)) {
+              $result = [
+                'mode' => (string) $verified['mode'],
+                'videoId' => (string) $verified['videoId'],
+              ];
+              self::store_last_good_status($result);
+              $mode = (string) ($result['mode'] ?? '');
+            } elseif (!empty($verified['__verified'])) {
+              self::clear_last_good_status();
+            } else {
+              // If direct verification fails transiently, keep last tracked stream to avoid viewer flapping.
+              $result = [
+                'mode' => (string) $tracked['mode'],
+                'videoId' => (string) $tracked['videoId'],
+              ];
+              $mode = (string) ($result['mode'] ?? '');
+            }
+          }
         }
       }
 
@@ -841,20 +864,30 @@ class Church_Livestream_Switcher {
       'mode' => $mode,
       'videoId' => $videoId,
       'savedAt' => time(),
-    ], max(3600, self::LAST_GOOD_GRACE_SECONDS * 3));
+    ], max(21600, self::LAST_GOOD_TRACK_MAX_SECONDS * 2));
   }
 
   // Return last known good status if it is recent enough to smooth transient API flaps.
   private static function get_recent_last_good_status() {
+    return self::get_last_good_status(self::LAST_GOOD_GRACE_SECONDS);
+  }
+
+  // Return last known good status bounded by age.
+  private static function get_last_good_status($maxAgeSeconds = 0) {
     $last = get_transient(self::LAST_GOOD_TRANSIENT_KEY);
     if (!is_array($last) || !self::is_video_mode_with_id($last)) return null;
     $savedAt = isset($last['savedAt']) ? intval($last['savedAt']) : 0;
     if ($savedAt <= 0) return null;
-    if ((time() - $savedAt) > self::LAST_GOOD_GRACE_SECONDS) return null;
+    if (intval($maxAgeSeconds) > 0 && (time() - $savedAt) > intval($maxAgeSeconds)) return null;
     return [
       'mode' => (string) $last['mode'],
       'videoId' => (string) $last['videoId'],
     ];
+  }
+
+  // Clear stored last known good stream state.
+  private static function clear_last_good_status() {
+    delete_transient(self::LAST_GOOD_TRANSIENT_KEY);
   }
 
   // Calculate seconds until the next midnight PT (used for quota backoff).
@@ -931,6 +964,51 @@ class Church_Livestream_Switcher {
     }
 
     return null;
+  }
+
+  // Query a specific video id directly to verify whether it is currently live or upcoming.
+  private static function check_video_mode_by_id($apiKey, $videoId, $debug = false) {
+    $videoId = trim((string) $videoId);
+    if ($videoId === '') {
+      return self::playlist_result($debug, 'missing tracked video id');
+    }
+
+    $url = add_query_arg([
+      'part' => 'snippet,liveStreamingDetails,status',
+      'id' => $videoId,
+      'key' => $apiKey,
+    ], 'https://www.googleapis.com/youtube/v3/videos');
+
+    $resp = wp_remote_get($url, ['timeout' => 10]);
+    if (is_wp_error($resp)) return self::playlist_result($debug, 'videos request failed: ' . $resp->get_error_message());
+
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) return self::playlist_result($debug, 'videos returned invalid JSON');
+    if (!empty($body['error'])) {
+      $msg = $body['error']['message'] ?? 'unknown error';
+      $reason = $body['error']['errors'][0]['reason'] ?? '';
+      return self::playlist_result($debug, 'videos API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api'));
+    }
+
+    $item = $body['items'][0] ?? null;
+    if (!is_array($item)) {
+      return ['mode' => 'playlist', 'videoId' => null, '__verified' => true];
+    }
+
+    $privacy = $item['status']['privacyStatus'] ?? 'public';
+    $embeddable = $item['status']['embeddable'] ?? true;
+    if ((!in_array($privacy, ['public', 'unlisted'], true)) || !$embeddable) {
+      return ['mode' => 'playlist', 'videoId' => null, '__verified' => true];
+    }
+
+    $lbc = $item['snippet']['liveBroadcastContent'] ?? 'none';
+    $actualStart = $item['liveStreamingDetails']['actualStartTime'] ?? null;
+    $actualEnd = $item['liveStreamingDetails']['actualEndTime'] ?? null;
+    $isLiveNow = ($lbc === 'live') || ($actualStart && !$actualEnd);
+    if ($isLiveNow) return ['mode' => 'live_video', 'videoId' => $videoId];
+    if ($lbc === 'upcoming') return ['mode' => 'upcoming_video', 'videoId' => $videoId];
+
+    return ['mode' => 'playlist', 'videoId' => null, '__verified' => true];
   }
 
   // Query YouTube Data API to detect live or upcoming video for a channel.
