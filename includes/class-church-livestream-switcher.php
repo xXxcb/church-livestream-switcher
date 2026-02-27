@@ -1494,7 +1494,6 @@ class Church_Livestream_Switcher {
 
     $loopEnabled = !empty($s['player_loop']);
     $forceLiveAutoplay = !empty($s['player_force_live_autoplay']);
-    $forceControlsOnMutedLive = !empty($s['player_mute_live']);
     $customQuery = self::sanitize_embed_query_string((string) ($s['player_custom_params'] ?? ''));
 
     $wrapperStyles = [
@@ -1534,13 +1533,13 @@ class Church_Livestream_Switcher {
       'referrerPolicy' => $referrerPolicy,
       'allowFullscreen' => $allowFullscreen,
       'enabled' => $enabled,
+      'channelId' => sanitize_text_field((string) ($s['channel_id'] ?? '')),
       'playlistId' => $playlistId,
       'poll' => $poll,
       'liveParams' => $liveParams,
       'playlistParams' => $playlistParams,
       'loopEnabled' => $loopEnabled,
       'forceLiveAutoplay' => $forceLiveAutoplay,
-      'forceControlsOnMutedLive' => $forceControlsOnMutedLive,
       'customQuery' => $customQuery,
       'statusPath' => self::rest_status_path(),
     ], false);

@@ -17,13 +17,13 @@
         (function(){
           const FRAME_ID = <?php echo wp_json_encode($frameId); ?>;
           const SWITCHING_ENABLED = <?php echo wp_json_encode($enabled); ?>;
+          const CHANNEL_ID = <?php echo wp_json_encode($channelId); ?>;
           const PLAYLIST_ID = <?php echo wp_json_encode($playlistId); ?>;
           const POLL_SECONDS = <?php echo wp_json_encode($poll); ?>;
           const LIVE_PARAMS = <?php echo wp_json_encode($liveParams); ?>;
           const PLAYLIST_PARAMS = <?php echo wp_json_encode($playlistParams); ?>;
           const LOOP_ENABLED = <?php echo wp_json_encode($loopEnabled); ?>;
           const FORCE_LIVE_AUTOPLAY = <?php echo wp_json_encode(!empty($forceLiveAutoplay)); ?>;
-          const FORCE_CONTROLS_ON_MUTED_LIVE = <?php echo wp_json_encode(!empty($forceControlsOnMutedLive)); ?>;
           const CUSTOM_QUERY = <?php echo wp_json_encode($customQuery); ?>;
           const STATUS_PATH = <?php echo wp_json_encode($statusPath); ?>;
           const LIVE_AUTOPLAY_ENABLED = FORCE_LIVE_AUTOPLAY && <?php echo wp_json_encode(!empty($liveParams['autoplay']) && (string) $liveParams['autoplay'] === '1'); ?>;
@@ -58,19 +58,26 @@
               return `https://www.youtube.com/embed/videoseries?${params.toString()}`;
             }
 
-            if (!videoId) return '';
             const params = new URLSearchParams();
             applyParams(params, LIVE_PARAMS);
-            if (LOOP_ENABLED) {
+            if (streamMode === 'live_video') {
+              params.delete('start');
+              params.delete('end');
+            }
+            if (!videoId && !(streamMode === 'live_video' && CHANNEL_ID)) return '';
+            if (LOOP_ENABLED && streamMode !== 'live_video') {
               params.set('loop', '1');
               params.set('playlist', videoId);
             }
             applyCustomParams(params);
-            if (streamMode === 'live_video' && FORCE_CONTROLS_ON_MUTED_LIVE) {
+            if (streamMode === 'live_video') {
               params.set('controls', '1');
             }
             if (streamMode === 'live_video') {
               params.set('_cls_mode', 'live');
+              if (CHANNEL_ID) {
+                return `https://www.youtube.com/embed/live_stream?channel=${encodeURIComponent(CHANNEL_ID)}&${params.toString()}`;
+              }
             } else if (streamMode === 'upcoming_video') {
               params.set('_cls_mode', 'upcoming');
             }
@@ -272,8 +279,6 @@
                 setTimeout(attemptLiveAutoplay, 1500);
               }
               lastMode = currentMode;
-
-              attachEndedFallbackHandler();
             } catch (e) {
               consecutiveErrors += 1;
               if (lastMode !== 'playlist' && consecutiveErrors < ERROR_FALLBACK_THRESHOLD) return;
