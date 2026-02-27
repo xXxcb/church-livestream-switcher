@@ -18,6 +18,7 @@ class Church_Livestream_Switcher {
   const LAST_GOOD_TRANSIENT_KEY = 'cls_live_last_good';
   const LAST_GOOD_GRACE_SECONDS = 300;
   const LAST_GOOD_TRACK_MAX_SECONDS = 21600;
+  const SEARCH_FALLBACK_CACHE_TTL_SECONDS = 120;
 
   // Bootstrap all hooks, shortcodes, and REST wiring for the plugin.
   public static function init() {
@@ -413,6 +414,15 @@ class Church_Livestream_Switcher {
   public static function settings_page() {
     if (!current_user_can('manage_options')) return;
     $settings = self::get_settings();
+    if (isset($_GET['cls_refresh_status'])) {
+      $channelId = sanitize_text_field((string) ($settings['channel_id'] ?? ''));
+      delete_transient(self::TRANSIENT_KEY);
+      self::clear_last_good_status();
+      self::clear_search_event_cache($channelId);
+      if ($channelId !== '') {
+        delete_transient('cls_uploads_playlist_' . md5($channelId));
+      }
+    }
     $runtimeSettings = self::apply_low_quota_profile($settings);
 
     $templateVars = [
@@ -1095,6 +1105,9 @@ class Church_Livestream_Switcher {
       return is_string($v) && $v !== '';
     })));
 
+    $ids = self::merge_search_fallback_ids($apiKey, $channelId, $ids, false, true);
+    if (is_wp_error($ids)) return $ids;
+
     if (empty($ids)) {
       return [
         'uploadsPlaylistId' => (string) $uploadsPlaylistId,
@@ -1183,6 +1196,108 @@ class Church_Livestream_Switcher {
       'live' => $live,
       'upcoming' => $upcoming,
     ];
+  }
+
+  // Merge search.list event IDs into a candidate set. Returns WP_Error only if
+  // search fails and there are no existing ids to continue with.
+  private static function merge_search_fallback_ids($apiKey, $channelId, $ids, $debug = false, $includeUpcoming = true) {
+    $merged = array_values(array_unique(array_filter(array_map('sanitize_text_field', is_array($ids) ? $ids : []), static function($v) {
+      return is_string($v) && $v !== '';
+    })));
+
+    $firstError = null;
+
+    $searchLive = self::search_channel_event_video_ids($apiKey, $channelId, 'live', 5, $debug);
+    if (is_wp_error($searchLive)) {
+      $firstError = $searchLive;
+    } else {
+      $merged = array_values(array_unique(array_merge(
+        $merged,
+        is_array($searchLive['ids'] ?? null) ? $searchLive['ids'] : []
+      )));
+    }
+
+    if ($includeUpcoming) {
+      $searchUpcoming = self::search_channel_event_video_ids($apiKey, $channelId, 'upcoming', 10, $debug);
+      if (is_wp_error($searchUpcoming)) {
+        if ($firstError === null) $firstError = $searchUpcoming;
+      } else {
+        $merged = array_values(array_unique(array_merge(
+          $merged,
+          is_array($searchUpcoming['ids'] ?? null) ? $searchUpcoming['ids'] : []
+        )));
+      }
+    }
+
+    if (empty($merged) && is_wp_error($firstError)) {
+      return $firstError;
+    }
+
+    return $merged;
+  }
+
+  // Fallback lookup for live/upcoming event video ids via search.list by channel.
+  private static function search_channel_event_video_ids($apiKey, $channelId, $eventType, $maxResults = 5, $debug = false) {
+    $event = sanitize_text_field((string) $eventType);
+    if (!in_array($event, ['live', 'upcoming'], true)) {
+      return new WP_Error('cls_search_invalid_event', 'invalid search event type', ['type' => 'api']);
+    }
+
+    $cacheKey = 'cls_search_event_' . md5($channelId . '|' . $event);
+    if (!$debug) {
+      $cached = get_transient($cacheKey);
+      if (is_array($cached) && isset($cached['ids']) && is_array($cached['ids'])) {
+        return $cached;
+      }
+    }
+
+    $url = add_query_arg([
+      'part' => 'snippet',
+      'channelId' => $channelId,
+      'eventType' => $event,
+      'type' => 'video',
+      'maxResults' => min(max(intval($maxResults), 1), 25),
+      'key' => $apiKey,
+    ], 'https://www.googleapis.com/youtube/v3/search');
+
+    $resp = wp_remote_get($url, ['timeout' => 10]);
+    if (is_wp_error($resp)) {
+      return new WP_Error('cls_search_request_failed', 'search request failed: ' . $resp->get_error_message(), ['type' => 'network']);
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) {
+      return new WP_Error('cls_search_invalid_json', 'search returned invalid JSON', ['type' => 'api']);
+    }
+    if (!empty($body['error'])) {
+      $msg = sanitize_text_field((string) ($body['error']['message'] ?? 'unknown error'));
+      $reason = sanitize_text_field((string) ($body['error']['errors'][0]['reason'] ?? ''));
+      return new WP_Error(
+        'cls_search_api_error',
+        'search API error: ' . $msg,
+        ['type' => ($reason === 'quotaExceeded' ? 'quota' : 'api')]
+      );
+    }
+
+    $ids = [];
+    $items = $body['items'] ?? [];
+    foreach ($items as $item) {
+      $vid = sanitize_text_field((string) ($item['id']['videoId'] ?? ''));
+      if ($vid !== '') $ids[] = $vid;
+    }
+    $out = ['ids' => array_values(array_unique($ids))];
+    if (!$debug) {
+      set_transient($cacheKey, $out, self::SEARCH_FALLBACK_CACHE_TTL_SECONDS);
+    }
+    return $out;
+  }
+
+  // Clear cached search fallback results for a channel.
+  private static function clear_search_event_cache($channelId) {
+    $channel = trim((string) $channelId);
+    if ($channel === '') return;
+    delete_transient('cls_search_event_' . md5($channel . '|live'));
+    delete_transient('cls_search_event_' . md5($channel . '|upcoming'));
   }
 
   // Query a specific video id directly to verify whether it is currently live or upcoming.
@@ -1281,9 +1396,18 @@ class Church_Livestream_Switcher {
     $ids = [];
     foreach ($items as $it) {
       $vid = $it['contentDetails']['videoId'] ?? null;
-      if ($vid) $ids[] = $vid;
+      if ($vid) $ids[] = sanitize_text_field((string) $vid);
     }
-    if (empty($ids)) return self::playlist_result($debug, 'no upload video ids found');
+
+    $ids = self::merge_search_fallback_ids($apiKey, $channelId, $ids, $debug, true);
+    if (is_wp_error($ids)) {
+      $errData = $ids->get_error_data();
+      $type = (string) ((is_array($errData) ? ($errData['type'] ?? '') : ''));
+      return self::playlist_result($debug, $ids->get_error_message(), ($type === 'quota' ? 'quota' : 'api'));
+    }
+    if (empty($ids)) {
+      return self::playlist_result($debug, 'no candidate video ids found from uploads or search fallback');
+    }
 
     $url = add_query_arg([
       'part' => 'snippet,liveStreamingDetails,status',
