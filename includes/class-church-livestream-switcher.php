@@ -13,7 +13,10 @@ class Church_Livestream_Switcher {
   const LOW_QUOTA_LOOKBACK_MAX = 10;
   const UPCOMING_CACHE_MAX_SECONDS = 30;
   const LIVE_CACHE_MAX_SECONDS = 20;
+  const PLAYLIST_CACHE_MAX_SECONDS = 15;
   const UPCOMING_STALE_GRACE_SECONDS = 900;
+  const LAST_GOOD_TRANSIENT_KEY = 'cls_live_last_good';
+  const LAST_GOOD_GRACE_SECONDS = 300;
 
   // Bootstrap all hooks, shortcodes, and REST wiring for the plugin.
   public static function init() {
@@ -204,6 +207,7 @@ class Church_Livestream_Switcher {
     }
 
     delete_transient(self::TRANSIENT_KEY);
+    delete_transient(self::LAST_GOOD_TRANSIENT_KEY);
     self::delete_github_release_cache($d['github_repo'], !empty($d['github_include_prerelease']));
     self::delete_github_release_cache($out['github_repo'], !empty($out['github_include_prerelease']));
     return wp_parse_args($out, $d);
@@ -732,32 +736,32 @@ class Church_Livestream_Switcher {
     $debug = isset($_GET['debug']) && sanitize_text_field((string)$_GET['debug']) === '1';
 
     if (empty($s['enabled'])) {
-      return [
+      return self::rest_json_response([
         'enabled' => false,
         'inWindow' => false,
         'mode' => 'playlist',
         'videoId' => null,
         'error' => 'Plugin disabled',
-      ];
+      ]);
     }
 
     $inWindow = self::is_in_schedule_window($s);
 
     if (!$inWindow) {
-      return [
+      return self::rest_json_response([
         'inWindow' => false,
         'mode' => 'playlist',
         'videoId' => null,
-      ];
+      ]);
     }
 
     if (empty($s['api_key']) || empty($s['channel_id'])) {
-      return [
+      return self::rest_json_response([
         'inWindow' => true,
         'mode' => 'playlist',
         'videoId' => null,
         'error' => 'Missing API key or channel id',
-      ];
+      ]);
     }
 
     if (!$debug) {
@@ -765,7 +769,7 @@ class Church_Livestream_Switcher {
       if (is_array($cached)) {
         $publicCached = $cached;
         unset($publicCached['__error_type']);
-        return array_merge(['inWindow' => true], $publicCached);
+        return self::rest_json_response(array_merge(['inWindow' => true], $publicCached));
       }
     }
 
@@ -779,10 +783,24 @@ class Church_Livestream_Switcher {
 
     if (!$debug) {
       $ttl = max(10, intval($s['cache_ttl_seconds']));
-      if (($result['mode'] ?? '') === 'upcoming_video') {
+      $mode = (string) ($result['mode'] ?? '');
+
+      if (self::is_video_mode_with_id($result)) {
+        self::store_last_good_status($result);
+      } elseif ($mode === 'playlist') {
+        $lastGood = self::get_recent_last_good_status();
+        if (is_array($lastGood)) {
+          $result = $lastGood;
+          $mode = (string) ($result['mode'] ?? '');
+        }
+      }
+
+      if ($mode === 'upcoming_video') {
         $ttl = max(10, min($ttl, self::UPCOMING_CACHE_MAX_SECONDS));
-      } elseif (($result['mode'] ?? '') === 'live_video') {
+      } elseif ($mode === 'live_video') {
         $ttl = max(10, min($ttl, self::LIVE_CACHE_MAX_SECONDS));
+      } elseif ($mode === 'playlist') {
+        $ttl = max(10, min($ttl, self::PLAYLIST_CACHE_MAX_SECONDS));
       }
       if (($result['__error_type'] ?? '') === 'quota') {
         // Quota errors persist until daily reset (midnight PT), so back off aggressively.
@@ -793,7 +811,50 @@ class Church_Livestream_Switcher {
 
     $publicResult = $result;
     unset($publicResult['__error_type']);
-    return array_merge(['inWindow' => true], $publicResult);
+    return self::rest_json_response(array_merge(['inWindow' => true], $publicResult));
+  }
+
+  // Force no-cache headers so site/CDN layers do not serve stale status payloads.
+  private static function rest_json_response($payload) {
+    $response = new WP_REST_Response($payload, 200);
+    $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    $response->header('Pragma', 'no-cache');
+    $response->header('Expires', '0');
+    return $response;
+  }
+
+  // Validate a public video status payload shape.
+  private static function is_video_mode_with_id($status) {
+    if (!is_array($status)) return false;
+    $mode = isset($status['mode']) ? (string) $status['mode'] : '';
+    if (!in_array($mode, ['live_video', 'upcoming_video'], true)) return false;
+    $videoId = isset($status['videoId']) ? trim((string) $status['videoId']) : '';
+    return $videoId !== '';
+  }
+
+  // Persist the last known good live/upcoming status for short-term fallback.
+  private static function store_last_good_status($status) {
+    if (!self::is_video_mode_with_id($status)) return;
+    $mode = (string) $status['mode'];
+    $videoId = trim((string) $status['videoId']);
+    set_transient(self::LAST_GOOD_TRANSIENT_KEY, [
+      'mode' => $mode,
+      'videoId' => $videoId,
+      'savedAt' => time(),
+    ], max(3600, self::LAST_GOOD_GRACE_SECONDS * 3));
+  }
+
+  // Return last known good status if it is recent enough to smooth transient API flaps.
+  private static function get_recent_last_good_status() {
+    $last = get_transient(self::LAST_GOOD_TRANSIENT_KEY);
+    if (!is_array($last) || !self::is_video_mode_with_id($last)) return null;
+    $savedAt = isset($last['savedAt']) ? intval($last['savedAt']) : 0;
+    if ($savedAt <= 0) return null;
+    if ((time() - $savedAt) > self::LAST_GOOD_GRACE_SECONDS) return null;
+    return [
+      'mode' => (string) $last['mode'],
+      'videoId' => (string) $last['videoId'],
+    ];
   }
 
   // Calculate seconds until the next midnight PT (used for quota backoff).
