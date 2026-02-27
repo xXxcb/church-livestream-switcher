@@ -333,6 +333,19 @@ class Church_Livestream_Switcher {
     return self::sanitize_origin_url(home_url('/'));
   }
 
+  // Compute a safe absolute URL for YouTube widget_referrer identity signaling.
+  private static function normalize_widget_referrer_url() {
+    $url = esc_url_raw(home_url('/'), ['http', 'https']);
+    if (!$url && isset($_SERVER['HTTP_HOST'])) {
+      $host = sanitize_text_field(wp_unslash($_SERVER['HTTP_HOST']));
+      $host = preg_replace('/:\d+$/', '', (string) $host);
+      if (is_string($host) && $host !== '') {
+        $url = 'https://' . $host . '/';
+      }
+    }
+    return is_string($url) ? $url : '';
+  }
+
   // Clean an arbitrary query string for safe embed overrides.
   private static function sanitize_embed_query_string($value) {
     $raw = ltrim(trim((string) $value), '?&');
@@ -1695,6 +1708,7 @@ class Church_Livestream_Switcher {
     } elseif ($originMode === 'custom') {
       $origin = self::sanitize_origin_url((string) ($s['player_origin_custom'] ?? ''));
     }
+    $widgetReferrer = self::normalize_widget_referrer_url();
 
     $startSeconds = max(0, intval($s['player_start_seconds'] ?? 0));
     $endSeconds = max(0, intval($s['player_end_seconds'] ?? 0));
@@ -1716,6 +1730,7 @@ class Church_Livestream_Switcher {
       'enablejsapi' => '1',
     ];
     if ($origin !== '') $commonParams['origin'] = $origin;
+    if ($widgetReferrer !== '') $commonParams['widget_referrer'] = $widgetReferrer;
     if ($hl !== '') $commonParams['hl'] = $hl;
     if ($ccLangPref !== '') $commonParams['cc_lang_pref'] = $ccLangPref;
 
