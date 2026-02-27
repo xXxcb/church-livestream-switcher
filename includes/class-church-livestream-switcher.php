@@ -413,6 +413,7 @@ class Church_Livestream_Switcher {
   public static function settings_page() {
     if (!current_user_can('manage_options')) return;
     $settings = self::get_settings();
+    $runtimeSettings = self::apply_low_quota_profile($settings);
 
     $templateVars = [
       's' => $settings,
@@ -425,9 +426,58 @@ class Church_Livestream_Switcher {
       'referrerPolicies' => self::referrer_policies(),
       'apiKeyPreview' => self::masked_secret_preview($settings['api_key'] ?? ''),
       'githubTokenPreview' => self::masked_secret_preview($settings['github_token'] ?? ''),
+      'liveStatus' => self::admin_live_status_snapshot($runtimeSettings),
+      'liveStatusRefreshUrl' => add_query_arg([
+        'page' => self::ADMIN_PAGE_SLUG,
+        'cls_refresh_status' => time(),
+      ], admin_url('options-general.php')) . '#cls-tab-live-status',
     ];
 
     self::render_template('admin/settings-page.php', $templateVars, true);
+  }
+
+  // Build admin-only status details showing direct YouTube API live/upcoming candidates.
+  private static function admin_live_status_snapshot($settings) {
+    $timezone = !empty($settings['timezone']) ? sanitize_text_field((string) $settings['timezone']) : 'UTC';
+    $lookback = min(max(intval($settings['lookback_count'] ?? 15), 3), 25);
+    $uploadsTtl = max(3600, intval($settings['uploads_cache_ttl_seconds'] ?? 86400));
+    $channelId = sanitize_text_field((string) ($settings['channel_id'] ?? ''));
+    $apiKey = sanitize_text_field((string) ($settings['api_key'] ?? ''));
+
+    $snapshot = [
+      'configured' => !($apiKey === '' || $channelId === ''),
+      'timezone' => $timezone,
+      'inWindow' => self::is_in_schedule_window($settings),
+      'lookback' => $lookback,
+      'uploadsPlaylistId' => '',
+      'scannedCount' => 0,
+      'live' => [],
+      'upcoming' => [],
+      'error' => '',
+      'errorType' => '',
+      'fetchedAt' => time(),
+    ];
+
+    if (!$snapshot['configured']) {
+      $snapshot['error'] = 'Missing API key or channel id.';
+      return $snapshot;
+    }
+
+    $data = self::fetch_live_status_lists_via_api($apiKey, $channelId, $lookback, $uploadsTtl);
+    if (is_wp_error($data)) {
+      $snapshot['error'] = $data->get_error_message();
+      $errData = $data->get_error_data();
+      if (is_array($errData) && !empty($errData['type'])) {
+        $snapshot['errorType'] = sanitize_text_field((string) $errData['type']);
+      }
+      return $snapshot;
+    }
+
+    $snapshot['uploadsPlaylistId'] = sanitize_text_field((string) ($data['uploadsPlaylistId'] ?? ''));
+    $snapshot['scannedCount'] = intval($data['scannedCount'] ?? 0);
+    $snapshot['live'] = is_array($data['live'] ?? null) ? $data['live'] : [];
+    $snapshot['upcoming'] = is_array($data['upcoming'] ?? null) ? $data['upcoming'] : [];
+    return $snapshot;
   }
 
   // Render a template file with extracted variables.
@@ -964,6 +1014,171 @@ class Church_Livestream_Switcher {
     }
 
     return null;
+  }
+
+  // Fetch detailed live/upcoming candidates from YouTube for admin diagnostics.
+  private static function fetch_live_status_lists_via_api($apiKey, $channelId, $lookback = 15, $uploadsCacheTtl = 86400) {
+    $uploadsKey = 'cls_uploads_playlist_' . md5($channelId);
+    $uploadsPlaylistId = get_transient($uploadsKey);
+
+    if (!$uploadsPlaylistId) {
+      $url = add_query_arg([
+        'part' => 'contentDetails',
+        'id' => $channelId,
+        'key' => $apiKey,
+      ], 'https://www.googleapis.com/youtube/v3/channels');
+
+      $resp = wp_remote_get($url, ['timeout' => 10]);
+      if (is_wp_error($resp)) {
+        return new WP_Error('cls_channels_request_failed', 'channels request failed: ' . $resp->get_error_message(), ['type' => 'network']);
+      }
+
+      $body = json_decode(wp_remote_retrieve_body($resp), true);
+      if (!is_array($body)) {
+        return new WP_Error('cls_channels_invalid_json', 'channels returned invalid JSON', ['type' => 'api']);
+      }
+      if (!empty($body['error'])) {
+        $msg = sanitize_text_field((string) ($body['error']['message'] ?? 'unknown error'));
+        $reason = sanitize_text_field((string) ($body['error']['errors'][0]['reason'] ?? ''));
+        return new WP_Error(
+          'cls_channels_api_error',
+          'channels API error: ' . $msg,
+          ['type' => ($reason === 'quotaExceeded' ? 'quota' : 'api')]
+        );
+      }
+
+      $uploadsPlaylistId = $body['items'][0]['contentDetails']['relatedPlaylists']['uploads'] ?? null;
+      if (!$uploadsPlaylistId) {
+        return new WP_Error('cls_uploads_not_found', 'uploads playlist not found for this channel', ['type' => 'api']);
+      }
+
+      set_transient($uploadsKey, $uploadsPlaylistId, intval($uploadsCacheTtl));
+    }
+
+    $url = add_query_arg([
+      'part' => 'contentDetails',
+      'playlistId' => $uploadsPlaylistId,
+      'maxResults' => min(max(intval($lookback), 3), 25),
+      'key' => $apiKey,
+    ], 'https://www.googleapis.com/youtube/v3/playlistItems');
+
+    $resp = wp_remote_get($url, ['timeout' => 10]);
+    if (is_wp_error($resp)) {
+      return new WP_Error('cls_playlist_items_failed', 'playlistItems request failed: ' . $resp->get_error_message(), ['type' => 'network']);
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) {
+      return new WP_Error('cls_playlist_items_invalid_json', 'playlistItems returned invalid JSON', ['type' => 'api']);
+    }
+    if (!empty($body['error'])) {
+      $msg = sanitize_text_field((string) ($body['error']['message'] ?? 'unknown error'));
+      $reason = sanitize_text_field((string) ($body['error']['errors'][0]['reason'] ?? ''));
+      return new WP_Error(
+        'cls_playlist_items_api_error',
+        'playlistItems API error: ' . $msg,
+        ['type' => ($reason === 'quotaExceeded' ? 'quota' : 'api')]
+      );
+    }
+
+    $items = $body['items'] ?? [];
+    $ids = [];
+    foreach ($items as $it) {
+      $vid = $it['contentDetails']['videoId'] ?? null;
+      if ($vid) $ids[] = sanitize_text_field((string) $vid);
+    }
+    $ids = array_values(array_unique(array_filter($ids, static function($v) {
+      return is_string($v) && $v !== '';
+    })));
+
+    if (empty($ids)) {
+      return [
+        'uploadsPlaylistId' => (string) $uploadsPlaylistId,
+        'scannedCount' => 0,
+        'live' => [],
+        'upcoming' => [],
+      ];
+    }
+
+    $url = add_query_arg([
+      'part' => 'snippet,liveStreamingDetails,status',
+      'id' => implode(',', $ids),
+      'key' => $apiKey,
+    ], 'https://www.googleapis.com/youtube/v3/videos');
+
+    $resp = wp_remote_get($url, ['timeout' => 10]);
+    if (is_wp_error($resp)) {
+      return new WP_Error('cls_videos_request_failed', 'videos request failed: ' . $resp->get_error_message(), ['type' => 'network']);
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) {
+      return new WP_Error('cls_videos_invalid_json', 'videos returned invalid JSON', ['type' => 'api']);
+    }
+    if (!empty($body['error'])) {
+      $msg = sanitize_text_field((string) ($body['error']['message'] ?? 'unknown error'));
+      $reason = sanitize_text_field((string) ($body['error']['errors'][0]['reason'] ?? ''));
+      return new WP_Error(
+        'cls_videos_api_error',
+        'videos API error: ' . $msg,
+        ['type' => ($reason === 'quotaExceeded' ? 'quota' : 'api')]
+      );
+    }
+
+    $videos = $body['items'] ?? [];
+    $live = [];
+    $upcoming = [];
+
+    foreach ($videos as $v) {
+      $vid = sanitize_text_field((string) ($v['id'] ?? ''));
+      if ($vid === '') continue;
+
+      $lbc = sanitize_text_field((string) ($v['snippet']['liveBroadcastContent'] ?? 'none'));
+      $privacy = sanitize_text_field((string) ($v['status']['privacyStatus'] ?? 'public'));
+      $embeddable = !empty($v['status']['embeddable']);
+      $actualStart = sanitize_text_field((string) ($v['liveStreamingDetails']['actualStartTime'] ?? ''));
+      $actualEnd = sanitize_text_field((string) ($v['liveStreamingDetails']['actualEndTime'] ?? ''));
+
+      $row = [
+        'videoId' => $vid,
+        'title' => sanitize_text_field((string) ($v['snippet']['title'] ?? '')),
+        'url' => 'https://www.youtube.com/watch?v=' . rawurlencode($vid),
+        'privacyStatus' => $privacy,
+        'embeddable' => $embeddable,
+        'liveBroadcastContent' => $lbc,
+        'scheduledStartTime' => sanitize_text_field((string) ($v['liveStreamingDetails']['scheduledStartTime'] ?? '')),
+        'actualStartTime' => $actualStart,
+        'actualEndTime' => $actualEnd,
+      ];
+
+      $isLiveNow = ($lbc === 'live') || ($actualStart !== '' && $actualEnd === '');
+      if ($isLiveNow) {
+        $live[] = $row;
+      } elseif ($lbc === 'upcoming') {
+        $upcoming[] = $row;
+      }
+    }
+
+    usort($live, static function($a, $b) {
+      $aTs = strtotime((string) (($a['actualStartTime'] ?? '') !== '' ? $a['actualStartTime'] : ($a['scheduledStartTime'] ?? '')));
+      $bTs = strtotime((string) (($b['actualStartTime'] ?? '') !== '' ? $b['actualStartTime'] : ($b['scheduledStartTime'] ?? '')));
+      return intval($bTs ?: 0) <=> intval($aTs ?: 0);
+    });
+    usort($upcoming, static function($a, $b) {
+      $aTs = strtotime((string) ($a['scheduledStartTime'] ?? ''));
+      $bTs = strtotime((string) ($b['scheduledStartTime'] ?? ''));
+      if ($aTs === false && $bTs === false) return strcmp((string) ($a['videoId'] ?? ''), (string) ($b['videoId'] ?? ''));
+      if ($aTs === false) return 1;
+      if ($bTs === false) return -1;
+      return intval($aTs) <=> intval($bTs);
+    });
+
+    return [
+      'uploadsPlaylistId' => sanitize_text_field((string) $uploadsPlaylistId),
+      'scannedCount' => count($videos),
+      'live' => $live,
+      'upcoming' => $upcoming,
+    ];
   }
 
   // Query a specific video id directly to verify whether it is currently live or upcoming.

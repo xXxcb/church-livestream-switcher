@@ -22,6 +22,7 @@
           <a href="#cls-tab-player" class="nav-tab cls-tab-link">Player Appearance</a>
           <a href="#cls-tab-scheduling" class="nav-tab cls-tab-link">Scheduling</a>
           <a href="#cls-tab-live-chat" class="nav-tab cls-tab-link">Live Chat</a>
+          <a href="#cls-tab-live-status" class="nav-tab cls-tab-link">Live Status</a>
         </h2>
 
         <section id="cls-tab-general" class="cls-tab-panel is-active">
@@ -506,6 +507,147 @@
             <p><strong>Chat shortcode:</strong> <code>[church_livestream_chat]</code></p>
             <p><strong>Optional attributes:</strong> <code>height="600"</code>, <code>offline_message="Live chat is available when the stream is live."</code></p>
           </div>
+        </section>
+
+        <section id="cls-tab-live-status" class="cls-tab-panel">
+          <h2>YouTube API Live Status</h2>
+          <p class="description">Direct server-side YouTube Data API check for current <code>live_video</code> and <code>upcoming_video</code> candidates.</p>
+          <p>
+            <a href="<?php echo esc_url($liveStatusRefreshUrl); ?>" class="button button-secondary">Refresh from YouTube API</a>
+          </p>
+
+          <?php
+            $statusTimezone = !empty($liveStatus['timezone']) ? (string) $liveStatus['timezone'] : 'UTC';
+            try { $statusTz = new DateTimeZone($statusTimezone); } catch (Exception $e) { $statusTz = new DateTimeZone('UTC'); $statusTimezone = 'UTC'; }
+            $formatStatusTime = static function($iso) use ($statusTz) {
+              $raw = trim((string) $iso);
+              if ($raw === '') return '—';
+              try {
+                $dt = new DateTime($raw);
+                $dt->setTimezone($statusTz);
+                return $dt->format('Y-m-d H:i:s T');
+              } catch (Exception $e) {
+                return $raw;
+              }
+            };
+            $fetchedAtText = !empty($liveStatus['fetchedAt']) ? wp_date('Y-m-d H:i:s T', intval($liveStatus['fetchedAt'])) : '—';
+            $liveRows = is_array($liveStatus['live'] ?? null) ? $liveStatus['live'] : [];
+            $upcomingRows = is_array($liveStatus['upcoming'] ?? null) ? $liveStatus['upcoming'] : [];
+          ?>
+
+          <table class="widefat striped" style="max-width:980px;margin-bottom:16px;">
+            <tbody>
+              <tr>
+                <th style="width:260px;">Fetched at</th>
+                <td><?php echo esc_html($fetchedAtText); ?></td>
+              </tr>
+              <tr>
+                <th>Timezone</th>
+                <td><code><?php echo esc_html($statusTimezone); ?></code></td>
+              </tr>
+              <tr>
+                <th>In schedule window</th>
+                <td><?php echo !empty($liveStatus['inWindow']) ? 'Yes' : 'No'; ?></td>
+              </tr>
+              <tr>
+                <th>Lookback used</th>
+                <td><?php echo esc_html((string) intval($liveStatus['lookback'] ?? 0)); ?></td>
+              </tr>
+              <tr>
+                <th>Uploads playlist id</th>
+                <td><code><?php echo esc_html((string) ($liveStatus['uploadsPlaylistId'] ?? '—')); ?></code></td>
+              </tr>
+              <tr>
+                <th>Videos scanned</th>
+                <td><?php echo esc_html((string) intval($liveStatus['scannedCount'] ?? 0)); ?></td>
+              </tr>
+              <tr>
+                <th>Detected live videos</th>
+                <td><?php echo esc_html((string) count($liveRows)); ?></td>
+              </tr>
+              <tr>
+                <th>Detected upcoming videos</th>
+                <td><?php echo esc_html((string) count($upcomingRows)); ?></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <?php if (!empty($liveStatus['error'])): ?>
+            <div class="notice notice-error inline">
+              <p>
+                <strong>YouTube API error:</strong>
+                <?php echo esc_html((string) $liveStatus['error']); ?>
+              </p>
+            </div>
+          <?php endif; ?>
+
+          <h3 style="margin-top:20px;">Live Streams</h3>
+          <table class="widefat striped">
+            <thead>
+              <tr>
+                <th style="width:36%;">Video</th>
+                <th style="width:14%;">Broadcast flag</th>
+                <th style="width:18%;">Scheduled start</th>
+                <th style="width:18%;">Actual start</th>
+                <th style="width:7%;">Privacy</th>
+                <th style="width:7%;">Embed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (!empty($liveRows)): ?>
+                <?php foreach ($liveRows as $row): ?>
+                  <tr>
+                    <td>
+                      <a href="<?php echo esc_url((string) ($row['url'] ?? '')); ?>" target="_blank" rel="noopener noreferrer">
+                        <?php echo esc_html((string) ($row['title'] ?? '(untitled)')); ?>
+                      </a>
+                      <div><code><?php echo esc_html((string) ($row['videoId'] ?? '')); ?></code></div>
+                    </td>
+                    <td><code><?php echo esc_html((string) ($row['liveBroadcastContent'] ?? '')); ?></code></td>
+                    <td><?php echo esc_html($formatStatusTime($row['scheduledStartTime'] ?? '')); ?></td>
+                    <td><?php echo esc_html($formatStatusTime($row['actualStartTime'] ?? '')); ?></td>
+                    <td><?php echo esc_html((string) ($row['privacyStatus'] ?? '')); ?></td>
+                    <td><?php echo !empty($row['embeddable']) ? 'Yes' : 'No'; ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php else: ?>
+                <tr><td colspan="6">No live streams returned by YouTube API in the current lookback window.</td></tr>
+              <?php endif; ?>
+            </tbody>
+          </table>
+
+          <h3 style="margin-top:20px;">Upcoming Streams</h3>
+          <table class="widefat striped">
+            <thead>
+              <tr>
+                <th style="width:40%;">Video</th>
+                <th style="width:18%;">Scheduled start</th>
+                <th style="width:18%;">Broadcast flag</th>
+                <th style="width:12%;">Privacy</th>
+                <th style="width:12%;">Embed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (!empty($upcomingRows)): ?>
+                <?php foreach ($upcomingRows as $row): ?>
+                  <tr>
+                    <td>
+                      <a href="<?php echo esc_url((string) ($row['url'] ?? '')); ?>" target="_blank" rel="noopener noreferrer">
+                        <?php echo esc_html((string) ($row['title'] ?? '(untitled)')); ?>
+                      </a>
+                      <div><code><?php echo esc_html((string) ($row['videoId'] ?? '')); ?></code></div>
+                    </td>
+                    <td><?php echo esc_html($formatStatusTime($row['scheduledStartTime'] ?? '')); ?></td>
+                    <td><code><?php echo esc_html((string) ($row['liveBroadcastContent'] ?? '')); ?></code></td>
+                    <td><?php echo esc_html((string) ($row['privacyStatus'] ?? '')); ?></td>
+                    <td><?php echo !empty($row['embeddable']) ? 'Yes' : 'No'; ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              <?php else: ?>
+                <tr><td colspan="5">No upcoming streams returned by YouTube API in the current lookback window.</td></tr>
+              <?php endif; ?>
+            </tbody>
+          </table>
         </section>
 
         <?php submit_button('Save Changes'); ?>
