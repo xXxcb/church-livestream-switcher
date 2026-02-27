@@ -40,6 +40,7 @@ class Church_Livestream_Switcher {
       'timezone' => 'America/Toronto',
       'channel_id' => '',
       'playlist_id' => '',
+      'upcoming_video_id_override' => '',
       'api_key' => '',
       'cache_ttl_seconds' => 120,
       'poll_interval_seconds' => 120,
@@ -120,6 +121,7 @@ class Church_Livestream_Switcher {
     $out['timezone'] = isset($input['timezone']) ? sanitize_text_field($input['timezone']) : $d['timezone'];
     $out['channel_id'] = isset($input['channel_id']) ? sanitize_text_field($input['channel_id']) : '';
     $out['playlist_id'] = isset($input['playlist_id']) ? sanitize_text_field($input['playlist_id']) : '';
+    $out['upcoming_video_id_override'] = isset($input['upcoming_video_id_override']) ? self::sanitize_youtube_video_id($input['upcoming_video_id_override']) : $d['upcoming_video_id_override'];
     $apiKeyInput = isset($input['api_key']) ? sanitize_text_field((string) $input['api_key']) : '';
     if (!empty($input['api_key_clear'])) {
       $out['api_key'] = '';
@@ -273,6 +275,14 @@ class Church_Livestream_Switcher {
     $h = intval($m[2]);
     if ($w <= 0 || $h <= 0) return 56.25;
     return round(($h / $w) * 100, 4);
+  }
+
+  // Sanitize a YouTube video id, allowing only canonical id characters.
+  private static function sanitize_youtube_video_id($value) {
+    $clean = preg_replace('/[^A-Za-z0-9_-]/', '', trim((string) $value));
+    if (!is_string($clean)) return '';
+    if ($clean === '') return '';
+    return substr($clean, 0, 32);
   }
 
   // Sanitize a space-delimited list of CSS classes.
@@ -850,7 +860,8 @@ class Church_Livestream_Switcher {
       $s['channel_id'],
       intval($s['lookback_count']),
       intval($s['uploads_cache_ttl_seconds']),
-      $debug
+      $debug,
+      self::sanitize_youtube_video_id((string) ($s['upcoming_video_id_override'] ?? ''))
     );
 
     if (!$debug) {
@@ -1399,7 +1410,8 @@ class Church_Livestream_Switcher {
   }
 
   // Query YouTube Data API to detect live or upcoming video for a channel.
-  private static function check_live_or_upcoming_via_api($apiKey, $channelId, $lookback = 15, $uploadsCacheTtl = 86400, $debug = false) {
+  private static function check_live_or_upcoming_via_api($apiKey, $channelId, $lookback = 15, $uploadsCacheTtl = 86400, $debug = false, $upcomingOverrideVideoId = '') {
+    $upcomingOverrideVideoId = self::sanitize_youtube_video_id((string) $upcomingOverrideVideoId);
     $debugMeta = [
       'uploadsPlaylistId' => '',
       'playlistItemsCount' => 0,
@@ -1408,7 +1420,21 @@ class Church_Livestream_Switcher {
       'videosScanned' => 0,
       'searchLiveCount' => 0,
       'searchUpcomingCount' => 0,
+      'manualUpcomingOverride' => $upcomingOverrideVideoId,
+      'manualOverrideMode' => '',
     ];
+
+    if ($upcomingOverrideVideoId !== '') {
+      $manual = self::check_video_mode_by_id($apiKey, $upcomingOverrideVideoId, $debug);
+      if (is_array($manual)) {
+        $manualMode = (string) ($manual['mode'] ?? '');
+        $manualId = self::sanitize_youtube_video_id((string) ($manual['videoId'] ?? ''));
+        $debugMeta['manualOverrideMode'] = $manualMode;
+        if (($manualMode === 'live_video' || $manualMode === 'upcoming_video') && $manualId !== '') {
+          return self::with_debug_meta(['mode' => $manualMode, 'videoId' => $manualId], $debug, $debugMeta);
+        }
+      }
+    }
 
     $uploads_key = 'cls_uploads_playlist_' . md5($channelId);
     $uploadsPlaylistId = get_transient($uploads_key);

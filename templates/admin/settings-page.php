@@ -76,6 +76,14 @@
                 </label>
               </td>
             </tr>
+
+            <tr>
+              <th scope="row"><label for="cls_upcoming_video_id_override">Manual Upcoming Video ID (override)</label></th>
+              <td>
+                <input id="cls_upcoming_video_id_override" name="<?php echo esc_attr($optKey); ?>[upcoming_video_id_override]" type="text" value="<?php echo esc_attr($s['upcoming_video_id_override']); ?>" class="regular-text" />
+                <p class="description">Optional: force a specific upcoming/live video id. If this video is currently <code>upcoming</code> or <code>live</code>, it will be used before auto-detection.</p>
+              </td>
+            </tr>
           </table>
         </section>
 
