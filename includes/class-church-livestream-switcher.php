@@ -1012,6 +1012,12 @@ class Church_Livestream_Switcher {
     return $result;
   }
 
+  // Detect playlistItems error reasons that indicate a stale/invalid playlist id.
+  private static function is_playlist_not_found_reason($reason) {
+    $r = sanitize_text_field((string) $reason);
+    return in_array($r, ['playlistNotFound', 'notFound', 'invalidPlaylist', 'invalidPlaylistId'], true);
+  }
+
   // Convert an ISO datetime string to a Unix timestamp or null.
   private static function parse_iso_datetime_to_timestamp($value) {
     if (!is_string($value) || $value === '') return null;
@@ -1103,17 +1109,24 @@ class Church_Livestream_Switcher {
     if (!is_array($body)) {
       return new WP_Error('cls_playlist_items_invalid_json', 'playlistItems returned invalid JSON', ['type' => 'api']);
     }
+    $items = [];
     if (!empty($body['error'])) {
       $msg = sanitize_text_field((string) ($body['error']['message'] ?? 'unknown error'));
       $reason = sanitize_text_field((string) ($body['error']['errors'][0]['reason'] ?? ''));
-      return new WP_Error(
-        'cls_playlist_items_api_error',
-        'playlistItems API error: ' . $msg,
-        ['type' => ($reason === 'quotaExceeded' ? 'quota' : 'api')]
-      );
+      if (self::is_playlist_not_found_reason($reason)) {
+        // Clear stale uploads cache and continue with search fallback instead of hard-failing.
+        delete_transient($uploadsKey);
+        $uploadsPlaylistId = '';
+      } else {
+        return new WP_Error(
+          'cls_playlist_items_api_error',
+          'playlistItems API error: ' . $msg,
+          ['type' => ($reason === 'quotaExceeded' ? 'quota' : 'api')]
+        );
+      }
+    } else {
+      $items = $body['items'] ?? [];
     }
-
-    $items = $body['items'] ?? [];
     $ids = [];
     foreach ($items as $it) {
       $vid = $it['contentDetails']['videoId'] ?? null;
@@ -1437,12 +1450,21 @@ class Church_Livestream_Switcher {
 
     $body = json_decode(wp_remote_retrieve_body($resp), true);
     if (!is_array($body)) return self::with_debug_meta(self::playlist_result($debug, 'playlistItems returned invalid JSON'), $debug, $debugMeta);
+    $items = [];
     if (!empty($body['error'])) {
       $msg = $body['error']['message'] ?? 'unknown error';
       $reason = $body['error']['errors'][0]['reason'] ?? '';
-      return self::with_debug_meta(self::playlist_result($debug, 'playlistItems API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api')), $debug, $debugMeta);
+      if (self::is_playlist_not_found_reason($reason)) {
+        // Stale uploads playlist cache can drift if channel config changed; recover via search fallback.
+        delete_transient($uploads_key);
+        $uploadsPlaylistId = '';
+        $debugMeta['uploadsPlaylistId'] = '';
+      } else {
+        return self::with_debug_meta(self::playlist_result($debug, 'playlistItems API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api')), $debug, $debugMeta);
+      }
+    } else {
+      $items = $body['items'] ?? [];
     }
-    $items = $body['items'] ?? [];
     $debugMeta['playlistItemsCount'] = is_array($items) ? count($items) : 0;
 
     $ids = [];
