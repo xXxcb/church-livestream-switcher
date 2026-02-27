@@ -1,0 +1,51 @@
+name: Build plugin zip on release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # required to upload release assets
+
+jobs:
+  zip-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Optional: remove dev-only files from the package
+      - name: Clean (optional)
+        run: |
+          rm -rf .git .github .gitignore
+          rm -rf node_modules vendor
+          rm -rf tests test
+          rm -f composer.json composer.lock package.json package-lock.json yarn.lock pnpm-lock.yaml
+          rm -f phpunit.xml* webpack.config.* vite.config.* babel.config.* .eslintrc* .prettierrc*
+        shell: bash
+
+      - name: Determine plugin slug and version
+        id: meta
+        run: |
+          # Use repo name as plugin slug by default
+          SLUG="${GITHUB_REPOSITORY##*/}"
+          echo "slug=$SLUG" >> $GITHUB_OUTPUT
+
+      - name: Create zip
+        run: |
+          SLUG="${{ steps.meta.outputs.slug }}"
+          ZIP_NAME="church-livestream-switcher.zip"
+
+          mkdir -p dist
+          # Put the plugin contents inside a top-level folder named after the slug
+          mkdir -p "dist/${SLUG}"
+          rsync -a --exclude "dist" ./ "dist/${SLUG}/"
+
+          (cd dist && zip -r "../dist/${ZIP_NAME}" "${SLUG}")
+          echo "Built dist/${ZIP_NAME}"
+
+      - name: Upload zip to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
