@@ -72,8 +72,10 @@
           }
 
           refresh();
-          if (POLL_SECONDS && POLL_SECONDS > 0) {
-            setInterval(refresh, POLL_SECONDS * 1000);
+          if (POLL_SECONDS) {
+            if (POLL_SECONDS > 0) {
+              setInterval(refresh, POLL_SECONDS * 1000);
+            }
           }
         })();
       </script>

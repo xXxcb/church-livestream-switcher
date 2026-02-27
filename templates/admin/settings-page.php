@@ -177,6 +177,14 @@
             </tr>
 
             <tr>
+              <th scope="row"><label for="cls_precheck_minutes">Pre-check before start (minutes)</label></th>
+              <td>
+                <input id="cls_precheck_minutes" name="<?php echo esc_attr($optKey); ?>[precheck_minutes]" type="number" min="0" max="720" value="<?php echo esc_attr($s['precheck_minutes']); ?>" />
+                <p class="description">Start schedule-window API checks this many minutes before each scheduled start (weekly and one-time).</p>
+              </td>
+            </tr>
+
+            <tr>
               <th scope="row"><label for="cls_lookback">Lookback count</label></th>
               <td>
                 <input id="cls_lookback" name="<?php echo esc_attr($optKey); ?>[lookback_count]" type="number" min="3" max="25" value="<?php echo esc_attr($s['lookback_count']); ?>" />
@@ -560,6 +568,22 @@
               <tr>
                 <th>Videos scanned</th>
                 <td><?php echo esc_html((string) intval($liveStatus['scannedCount'] ?? 0)); ?></td>
+              </tr>
+              <tr>
+                <th>Playlist items returned</th>
+                <td><?php echo esc_html((string) intval($liveStatus['playlistItemsCount'] ?? 0)); ?></td>
+              </tr>
+              <tr>
+                <th>Candidate ids queried</th>
+                <td><?php echo esc_html((string) intval($liveStatus['candidateCount'] ?? 0)); ?></td>
+              </tr>
+              <tr>
+                <th>Search live candidates</th>
+                <td><?php echo esc_html((string) intval($liveStatus['searchLiveCount'] ?? 0)); ?></td>
+              </tr>
+              <tr>
+                <th>Search upcoming candidates</th>
+                <td><?php echo esc_html((string) intval($liveStatus['searchUpcomingCount'] ?? 0)); ?></td>
               </tr>
               <tr>
                 <th>Detected live videos</th>

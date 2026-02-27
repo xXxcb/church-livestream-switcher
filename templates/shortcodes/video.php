@@ -26,7 +26,8 @@
           const FORCE_LIVE_AUTOPLAY = <?php echo wp_json_encode(!empty($forceLiveAutoplay)); ?>;
           const CUSTOM_QUERY = <?php echo wp_json_encode($customQuery); ?>;
           const STATUS_PATH = <?php echo wp_json_encode($statusPath); ?>;
-          const LIVE_AUTOPLAY_ENABLED = FORCE_LIVE_AUTOPLAY && <?php echo wp_json_encode(!empty($liveParams['autoplay']) && (string) $liveParams['autoplay'] === '1'); ?>;
+          const LIVE_AUTOPLAY_ALLOWED = <?php echo wp_json_encode(!empty($liveParams['autoplay']) && (string) $liveParams['autoplay'] === '1'); ?>;
+          const LIVE_AUTOPLAY_ENABLED = FORCE_LIVE_AUTOPLAY ? LIVE_AUTOPLAY_ALLOWED : false;
 
           const frame = document.getElementById(FRAME_ID);
           if (!frame) return;
@@ -64,10 +65,15 @@
               params.delete('start');
               params.delete('end');
             }
-            if (!videoId && !(streamMode === 'live_video' && CHANNEL_ID)) return '';
-            if (LOOP_ENABLED && streamMode !== 'live_video') {
-              params.set('loop', '1');
-              params.set('playlist', videoId);
+            if (!videoId) {
+              const canUseChannelLive = (streamMode === 'live_video') ? Boolean(CHANNEL_ID) : false;
+              if (!canUseChannelLive) return '';
+            }
+            if (LOOP_ENABLED) {
+              if (streamMode !== 'live_video') {
+                params.set('loop', '1');
+                params.set('playlist', videoId);
+              }
             }
             applyCustomParams(params);
             if (streamMode === 'live_video') {
@@ -88,12 +94,16 @@
           const channelLiveSrc = buildSrc('video', '', 'live_video');
           const baseFallbackSrc = playlistSrc || channelLiveSrc;
 
-          if (baseFallbackSrc && frame.src !== baseFallbackSrc) {
-            frame.src = baseFallbackSrc;
+          if (baseFallbackSrc) {
+            if (frame.src !== baseFallbackSrc) {
+              frame.src = baseFallbackSrc;
+            }
           }
 
           if (!SWITCHING_ENABLED) {
-            if (baseFallbackSrc && frame.src !== baseFallbackSrc) frame.src = baseFallbackSrc;
+            if (baseFallbackSrc) {
+              if (frame.src !== baseFallbackSrc) frame.src = baseFallbackSrc;
+            }
             return;
           }
 
@@ -131,9 +141,11 @@
           function ensureYouTubeApiReady() {
             if (ytReadyPromise) return ytReadyPromise;
             ytReadyPromise = new Promise((resolve, reject) => {
-              if (window.YT && window.YT.Player) {
-                resolve(window.YT);
-                return;
+              if (window.YT) {
+                if (window.YT.Player) {
+                  resolve(window.YT);
+                  return;
+                }
               }
 
               const previousReady = window.onYouTubeIframeAPIReady;
@@ -163,8 +175,10 @@
                 ytPlayer = new window.YT.Player(frame, {
                   events: {
                     onStateChange: function(event) {
-                      if (event && event.data === window.YT.PlayerState.ENDED) {
-                        if (frame.src !== playlistSrc) frame.src = playlistSrc;
+                      if (event) {
+                        if (event.data === window.YT.PlayerState.ENDED) {
+                          if (frame.src !== playlistSrc) frame.src = playlistSrc;
+                        }
                       }
                     }
                   }
@@ -245,7 +259,12 @@
               let currentMode = 'playlist';
               let holdCurrentVideo = false;
 
-              if (data && data.inWindow && data.mode === 'live_video') {
+              const isInWindow = !!(data ? data.inWindow : false);
+              const isLiveMode = !!(data ? (data.mode === 'live_video') : false);
+              const isUpcomingMode = !!(data ? (data.mode === 'upcoming_video') : false);
+              const hasUpcomingId = !!(data ? data.videoId : false);
+
+              if (isInWindow && isLiveMode) {
                 currentMode = data.mode;
                 nextSrc = buildSrc('video', (data.videoId || ''), currentMode) || baseFallbackSrc;
                 lastVideoSeenAt = Date.now();
@@ -255,16 +274,24 @@
                 } else {
                   clearStoredVideoStatus();
                 }
-              } else if (data && data.inWindow && data.mode === 'upcoming_video' && data.videoId) {
-                // Upcoming embeds frequently render black; keep playlist until LIVE is confirmed.
+              } else if (isInWindow && isUpcomingMode && hasUpcomingId) {
+                currentMode = data.mode;
+                nextSrc = buildSrc('video', (data.videoId || ''), currentMode) || baseFallbackSrc;
                 playlistConfirmations = 0;
                 clearStoredVideoStatus();
               } else {
                 playlistConfirmations += 1;
-                const outsideWindow = !!(data && data.inWindow === false);
+                const outsideWindow = !!(data ? (data.inWindow === false) : false);
                 const recentVideo = (Date.now() - lastVideoSeenAt) < VIDEO_HOLD_AFTER_PLAYLIST_MS;
                 const waitingForPlaylistConfirm = playlistConfirmations < PLAYLIST_CONFIRMATIONS_REQUIRED;
-                holdCurrentVideo = !outsideWindow && lastMode !== 'playlist' && (recentVideo || waitingForPlaylistConfirm);
+                holdCurrentVideo = false;
+                if (!outsideWindow) {
+                  if (lastMode !== 'playlist') {
+                    if (recentVideo || waitingForPlaylistConfirm) {
+                      holdCurrentVideo = true;
+                    }
+                  }
+                }
                 if (holdCurrentVideo) {
                   currentMode = lastMode;
                   nextSrc = frame.src || nextSrc;
@@ -278,7 +305,9 @@
                 const srcChanged = frame.src !== nextSrc;
 
                 if (srcChanged || modeChanged) {
-                  if (!srcChanged && modeChanged) frame.src = 'about:blank';
+                  if (!srcChanged) {
+                    if (modeChanged) frame.src = 'about:blank';
+                  }
                   frame.src = nextSrc;
                 }
               }
@@ -291,8 +320,12 @@
               lastMode = currentMode;
             } catch (e) {
               consecutiveErrors += 1;
-              if (lastMode !== 'playlist' && consecutiveErrors < ERROR_FALLBACK_THRESHOLD) return;
-              if (baseFallbackSrc && frame.src !== baseFallbackSrc) frame.src = baseFallbackSrc;
+              if (lastMode !== 'playlist') {
+                if (consecutiveErrors < ERROR_FALLBACK_THRESHOLD) return;
+              }
+              if (baseFallbackSrc) {
+                if (frame.src !== baseFallbackSrc) frame.src = baseFallbackSrc;
+              }
               lastMode = 'playlist';
               pendingLiveAutoplay = false;
               playlistConfirmations = 0;
@@ -302,8 +335,10 @@
 
           restoreLastVideoOnLoad();
           refresh();
-          if (POLL_SECONDS && POLL_SECONDS > 0) {
-            setInterval(refresh, POLL_SECONDS * 1000);
+          if (POLL_SECONDS) {
+            if (POLL_SECONDS > 0) {
+              setInterval(refresh, POLL_SECONDS * 1000);
+            }
           }
         })();
       </script>

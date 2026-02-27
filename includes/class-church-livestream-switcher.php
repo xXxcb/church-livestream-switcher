@@ -43,6 +43,7 @@ class Church_Livestream_Switcher {
       'api_key' => '',
       'cache_ttl_seconds' => 120,
       'poll_interval_seconds' => 120,
+      'precheck_minutes' => 0,
       'lookback_count' => 15,
       'uploads_cache_ttl_seconds' => 86400,
       'low_quota_mode' => 0,
@@ -127,6 +128,7 @@ class Church_Livestream_Switcher {
     }
     $out['cache_ttl_seconds'] = isset($input['cache_ttl_seconds']) ? max(10, intval($input['cache_ttl_seconds'])) : $d['cache_ttl_seconds'];
     $out['poll_interval_seconds'] = isset($input['poll_interval_seconds']) ? max(30, intval($input['poll_interval_seconds'])) : $d['poll_interval_seconds'];
+    $out['precheck_minutes'] = isset($input['precheck_minutes']) ? max(0, min(720, intval($input['precheck_minutes']))) : $d['precheck_minutes'];
     $out['lookback_count'] = isset($input['lookback_count']) ? max(3, min(25, intval($input['lookback_count']))) : $d['lookback_count'];
     $out['uploads_cache_ttl_seconds'] = isset($input['uploads_cache_ttl_seconds']) ? max(3600, intval($input['uploads_cache_ttl_seconds'])) : $d['uploads_cache_ttl_seconds'];
     $out['low_quota_mode'] = !empty($input['low_quota_mode']) ? 1 : 0;
@@ -461,6 +463,10 @@ class Church_Livestream_Switcher {
       'lookback' => $lookback,
       'uploadsPlaylistId' => '',
       'scannedCount' => 0,
+      'playlistItemsCount' => 0,
+      'candidateCount' => 0,
+      'searchLiveCount' => 0,
+      'searchUpcomingCount' => 0,
       'live' => [],
       'upcoming' => [],
       'error' => '',
@@ -485,6 +491,10 @@ class Church_Livestream_Switcher {
 
     $snapshot['uploadsPlaylistId'] = sanitize_text_field((string) ($data['uploadsPlaylistId'] ?? ''));
     $snapshot['scannedCount'] = intval($data['scannedCount'] ?? 0);
+    $snapshot['playlistItemsCount'] = intval($data['playlistItemsCount'] ?? 0);
+    $snapshot['candidateCount'] = intval($data['candidateCount'] ?? 0);
+    $snapshot['searchLiveCount'] = intval($data['searchLiveCount'] ?? 0);
+    $snapshot['searchUpcomingCount'] = intval($data['searchUpcomingCount'] ?? 0);
     $snapshot['live'] = is_array($data['live'] ?? null) ? $data['live'] : [];
     $snapshot['upcoming'] = is_array($data['upcoming'] ?? null) ? $data['upcoming'] : [];
     return $snapshot;
@@ -795,6 +805,7 @@ class Church_Livestream_Switcher {
   public static function rest_status() {
     $s = self::apply_low_quota_profile(self::get_settings());
     $debug = isset($_GET['debug']) && sanitize_text_field((string)$_GET['debug']) === '1';
+    $debugForce = $debug && isset($_GET['force']) && sanitize_text_field((string) $_GET['force']) === '1';
 
     if (empty($s['enabled'])) {
       return self::rest_json_response([
@@ -808,7 +819,7 @@ class Church_Livestream_Switcher {
 
     $inWindow = self::is_in_schedule_window($s);
 
-    if (!$inWindow) {
+    if (!$inWindow && !$debugForce) {
       return self::rest_json_response([
         'inWindow' => false,
         'mode' => 'playlist',
@@ -894,7 +905,7 @@ class Church_Livestream_Switcher {
 
     $publicResult = $result;
     unset($publicResult['__error_type']);
-    return self::rest_json_response(array_merge(['inWindow' => true], $publicResult));
+    return self::rest_json_response(array_merge(['inWindow' => $inWindow], $publicResult));
   }
 
   // Force no-cache headers so site/CDN layers do not serve stale status payloads.
@@ -992,6 +1003,13 @@ class Church_Livestream_Switcher {
       $out['error'] = $error;
     }
     return $out;
+  }
+
+  // Attach debug metadata payload to a status result when debug mode is enabled.
+  private static function with_debug_meta($result, $debug, $meta) {
+    if (!$debug || !is_array($result) || !is_array($meta)) return $result;
+    $result['debugMeta'] = $meta;
+    return $result;
   }
 
   // Convert an ISO datetime string to a Unix timestamp or null.
@@ -1105,13 +1123,18 @@ class Church_Livestream_Switcher {
       return is_string($v) && $v !== '';
     })));
 
-    $ids = self::merge_search_fallback_ids($apiKey, $channelId, $ids, false, true);
+    $fallbackMeta = null;
+    $ids = self::merge_search_fallback_ids($apiKey, $channelId, $ids, false, true, $fallbackMeta);
     if (is_wp_error($ids)) return $ids;
 
     if (empty($ids)) {
       return [
         'uploadsPlaylistId' => (string) $uploadsPlaylistId,
         'scannedCount' => 0,
+        'playlistItemsCount' => count($items),
+        'candidateCount' => 0,
+        'searchLiveCount' => intval($fallbackMeta['searchLiveCount'] ?? 0),
+        'searchUpcomingCount' => intval($fallbackMeta['searchUpcomingCount'] ?? 0),
         'live' => [],
         'upcoming' => [],
       ];
@@ -1193,6 +1216,10 @@ class Church_Livestream_Switcher {
     return [
       'uploadsPlaylistId' => sanitize_text_field((string) $uploadsPlaylistId),
       'scannedCount' => count($videos),
+      'playlistItemsCount' => count($items),
+      'candidateCount' => count($ids),
+      'searchLiveCount' => intval($fallbackMeta['searchLiveCount'] ?? 0),
+      'searchUpcomingCount' => intval($fallbackMeta['searchUpcomingCount'] ?? 0),
       'live' => $live,
       'upcoming' => $upcoming,
     ];
@@ -1200,10 +1227,17 @@ class Church_Livestream_Switcher {
 
   // Merge search.list event IDs into a candidate set. Returns WP_Error only if
   // search fails and there are no existing ids to continue with.
-  private static function merge_search_fallback_ids($apiKey, $channelId, $ids, $debug = false, $includeUpcoming = true) {
+  private static function merge_search_fallback_ids($apiKey, $channelId, $ids, $debug = false, $includeUpcoming = true, &$meta = null) {
     $merged = array_values(array_unique(array_filter(array_map('sanitize_text_field', is_array($ids) ? $ids : []), static function($v) {
       return is_string($v) && $v !== '';
     })));
+
+    $meta = [
+      'inputCount' => count($merged),
+      'searchLiveCount' => 0,
+      'searchUpcomingCount' => 0,
+      'outputCount' => count($merged),
+    ];
 
     $firstError = null;
 
@@ -1211,9 +1245,11 @@ class Church_Livestream_Switcher {
     if (is_wp_error($searchLive)) {
       $firstError = $searchLive;
     } else {
+      $liveIds = is_array($searchLive['ids'] ?? null) ? $searchLive['ids'] : [];
+      $meta['searchLiveCount'] = count($liveIds);
       $merged = array_values(array_unique(array_merge(
         $merged,
-        is_array($searchLive['ids'] ?? null) ? $searchLive['ids'] : []
+        $liveIds
       )));
     }
 
@@ -1222,12 +1258,16 @@ class Church_Livestream_Switcher {
       if (is_wp_error($searchUpcoming)) {
         if ($firstError === null) $firstError = $searchUpcoming;
       } else {
+        $upcomingIds = is_array($searchUpcoming['ids'] ?? null) ? $searchUpcoming['ids'] : [];
+        $meta['searchUpcomingCount'] = count($upcomingIds);
         $merged = array_values(array_unique(array_merge(
           $merged,
-          is_array($searchUpcoming['ids'] ?? null) ? $searchUpcoming['ids'] : []
+          $upcomingIds
         )));
       }
     }
+
+    $meta['outputCount'] = count($merged);
 
     if (empty($merged) && is_wp_error($firstError)) {
       return $firstError;
@@ -1347,6 +1387,16 @@ class Church_Livestream_Switcher {
 
   // Query YouTube Data API to detect live or upcoming video for a channel.
   private static function check_live_or_upcoming_via_api($apiKey, $channelId, $lookback = 15, $uploadsCacheTtl = 86400, $debug = false) {
+    $debugMeta = [
+      'uploadsPlaylistId' => '',
+      'playlistItemsCount' => 0,
+      'candidateCount' => 0,
+      'candidateIds' => [],
+      'videosScanned' => 0,
+      'searchLiveCount' => 0,
+      'searchUpcomingCount' => 0,
+    ];
+
     $uploads_key = 'cls_uploads_playlist_' . md5($channelId);
     $uploadsPlaylistId = get_transient($uploads_key);
 
@@ -1358,21 +1408,22 @@ class Church_Livestream_Switcher {
       ], 'https://www.googleapis.com/youtube/v3/channels');
 
       $resp = wp_remote_get($url, ['timeout' => 10]);
-      if (is_wp_error($resp)) return self::playlist_result($debug, 'channels request failed: ' . $resp->get_error_message());
+      if (is_wp_error($resp)) return self::with_debug_meta(self::playlist_result($debug, 'channels request failed: ' . $resp->get_error_message()), $debug, $debugMeta);
 
       $body = json_decode(wp_remote_retrieve_body($resp), true);
-      if (!is_array($body)) return self::playlist_result($debug, 'channels returned invalid JSON');
+      if (!is_array($body)) return self::with_debug_meta(self::playlist_result($debug, 'channels returned invalid JSON'), $debug, $debugMeta);
       if (!empty($body['error'])) {
         $msg = $body['error']['message'] ?? 'unknown error';
         $reason = $body['error']['errors'][0]['reason'] ?? '';
-        return self::playlist_result($debug, 'channels API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api'));
+        return self::with_debug_meta(self::playlist_result($debug, 'channels API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api')), $debug, $debugMeta);
       }
       $uploadsPlaylistId = $body['items'][0]['contentDetails']['relatedPlaylists']['uploads'] ?? null;
 
-      if (!$uploadsPlaylistId) return self::playlist_result($debug, 'uploads playlist not found for this channel');
+      if (!$uploadsPlaylistId) return self::with_debug_meta(self::playlist_result($debug, 'uploads playlist not found for this channel'), $debug, $debugMeta);
 
       set_transient($uploads_key, $uploadsPlaylistId, intval($uploadsCacheTtl));
     }
+    $debugMeta['uploadsPlaylistId'] = sanitize_text_field((string) $uploadsPlaylistId);
 
     $url = add_query_arg([
       'part'       => 'contentDetails',
@@ -1382,16 +1433,17 @@ class Church_Livestream_Switcher {
     ], 'https://www.googleapis.com/youtube/v3/playlistItems');
 
     $resp = wp_remote_get($url, ['timeout' => 10]);
-    if (is_wp_error($resp)) return self::playlist_result($debug, 'playlistItems request failed: ' . $resp->get_error_message());
+    if (is_wp_error($resp)) return self::with_debug_meta(self::playlist_result($debug, 'playlistItems request failed: ' . $resp->get_error_message()), $debug, $debugMeta);
 
     $body = json_decode(wp_remote_retrieve_body($resp), true);
-    if (!is_array($body)) return self::playlist_result($debug, 'playlistItems returned invalid JSON');
+    if (!is_array($body)) return self::with_debug_meta(self::playlist_result($debug, 'playlistItems returned invalid JSON'), $debug, $debugMeta);
     if (!empty($body['error'])) {
       $msg = $body['error']['message'] ?? 'unknown error';
       $reason = $body['error']['errors'][0]['reason'] ?? '';
-      return self::playlist_result($debug, 'playlistItems API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api'));
+      return self::with_debug_meta(self::playlist_result($debug, 'playlistItems API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api')), $debug, $debugMeta);
     }
     $items = $body['items'] ?? [];
+    $debugMeta['playlistItemsCount'] = is_array($items) ? count($items) : 0;
 
     $ids = [];
     foreach ($items as $it) {
@@ -1399,14 +1451,21 @@ class Church_Livestream_Switcher {
       if ($vid) $ids[] = sanitize_text_field((string) $vid);
     }
 
-    $ids = self::merge_search_fallback_ids($apiKey, $channelId, $ids, $debug, true);
+    $fallbackMeta = null;
+    $ids = self::merge_search_fallback_ids($apiKey, $channelId, $ids, $debug, true, $fallbackMeta);
+    if (is_array($fallbackMeta)) {
+      $debugMeta['searchLiveCount'] = intval($fallbackMeta['searchLiveCount'] ?? 0);
+      $debugMeta['searchUpcomingCount'] = intval($fallbackMeta['searchUpcomingCount'] ?? 0);
+    }
     if (is_wp_error($ids)) {
       $errData = $ids->get_error_data();
       $type = (string) ((is_array($errData) ? ($errData['type'] ?? '') : ''));
-      return self::playlist_result($debug, $ids->get_error_message(), ($type === 'quota' ? 'quota' : 'api'));
+      return self::with_debug_meta(self::playlist_result($debug, $ids->get_error_message(), ($type === 'quota' ? 'quota' : 'api')), $debug, $debugMeta);
     }
+    $debugMeta['candidateCount'] = is_array($ids) ? count($ids) : 0;
+    $debugMeta['candidateIds'] = is_array($ids) ? array_values(array_slice($ids, 0, 10)) : [];
     if (empty($ids)) {
-      return self::playlist_result($debug, 'no candidate video ids found from uploads or search fallback');
+      return self::with_debug_meta(self::playlist_result($debug, 'no candidate video ids found from uploads or search fallback'), $debug, $debugMeta);
     }
 
     $url = add_query_arg([
@@ -1416,16 +1475,17 @@ class Church_Livestream_Switcher {
     ], 'https://www.googleapis.com/youtube/v3/videos');
 
     $resp = wp_remote_get($url, ['timeout' => 10]);
-    if (is_wp_error($resp)) return self::playlist_result($debug, 'videos request failed: ' . $resp->get_error_message());
+    if (is_wp_error($resp)) return self::with_debug_meta(self::playlist_result($debug, 'videos request failed: ' . $resp->get_error_message()), $debug, $debugMeta);
 
     $body = json_decode(wp_remote_retrieve_body($resp), true);
-    if (!is_array($body)) return self::playlist_result($debug, 'videos returned invalid JSON');
+    if (!is_array($body)) return self::with_debug_meta(self::playlist_result($debug, 'videos returned invalid JSON'), $debug, $debugMeta);
     if (!empty($body['error'])) {
       $msg = $body['error']['message'] ?? 'unknown error';
       $reason = $body['error']['errors'][0]['reason'] ?? '';
-      return self::playlist_result($debug, 'videos API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api'));
+      return self::with_debug_meta(self::playlist_result($debug, 'videos API error: ' . $msg, ($reason === 'quotaExceeded' ? 'quota' : 'api')), $debug, $debugMeta);
     }
     $videos = $body['items'] ?? [];
+    $debugMeta['videosScanned'] = is_array($videos) ? count($videos) : 0;
 
     $liveId = null;
     $upcoming = [];
@@ -1457,14 +1517,14 @@ class Church_Livestream_Switcher {
       }
     }
 
-    if ($liveId) return ['mode' => 'live_video', 'videoId' => $liveId];
+    if ($liveId) return self::with_debug_meta(['mode' => 'live_video', 'videoId' => $liveId], $debug, $debugMeta);
 
     if (!empty($upcoming)) {
       $bestUpcomingId = self::pick_best_upcoming_video_id($upcoming);
-      if ($bestUpcomingId) return ['mode' => 'upcoming_video', 'videoId' => $bestUpcomingId];
+      if ($bestUpcomingId) return self::with_debug_meta(['mode' => 'upcoming_video', 'videoId' => $bestUpcomingId], $debug, $debugMeta);
     }
 
-    return self::playlist_result($debug, 'no live or upcoming video found in current lookback window');
+    return self::with_debug_meta(self::playlist_result($debug, 'no live or upcoming video found in current lookback window'), $debug, $debugMeta);
   }
 
   // Determine if current time falls inside any schedule/one-time window.
@@ -1474,8 +1534,9 @@ class Church_Livestream_Switcher {
 
     $now = new DateTime('now', $dtz);
     $day = intval($now->format('w'));
-    $yesterday = ($day + 6) % 7;
     $currentMinutes = intval($now->format('H')) * 60 + intval($now->format('i'));
+    $nowWeekMinute = ($day * 1440) + $currentMinutes;
+    $precheckMinutes = max(0, min(720, intval($s['precheck_minutes'] ?? 0)));
 
     $schedule = is_array($s['schedule']) ? $s['schedule'] : [];
     $oneTimeEvents = is_array($s['one_time_events']) ? $s['one_time_events'] : [];
@@ -1499,6 +1560,7 @@ class Church_Livestream_Switcher {
       if (!$startAt || !$endAt) continue;
       if ($startAt->format('Y-m-d') !== $date || $startAt->format('H:i') !== $startText) continue;
       if ($endAt->format('Y-m-d') !== $date || $endAt->format('H:i') !== $endText) continue;
+      if ($precheckMinutes > 0) $startAt->modify('-' . $precheckMinutes . ' minutes');
 
       // Allow one-time events to cross midnight by setting end earlier than start.
       if ($end < $start) $endAt->modify('+1 day');
@@ -1514,12 +1576,15 @@ class Church_Livestream_Switcher {
       $end = self::hhmm_to_minutes($row['end'] ?? '');
       if ($start === null || $end === null) continue;
 
-      if ($end < $start) {
-        // Overnight window (e.g. 23:00 -> 01:00): match both sides of midnight.
-        if (($rowDay === $day && $currentMinutes >= $start) || ($rowDay === $yesterday && $currentMinutes <= $end)) return true;
-      } else {
-        if ($rowDay !== $day) continue;
-        if ($currentMinutes >= $start && $currentMinutes <= $end) return true;
+      // Use minute-of-week ranges so pre-window offsets and overnight spans work across day/week boundaries.
+      $startMinute = ($rowDay * 1440) + $start - $precheckMinutes;
+      $endMinute = ($rowDay * 1440) + $end;
+      if ($end < $start) $endMinute += 1440;
+
+      foreach ([-10080, 0, 10080] as $offset) {
+        $startAbs = $startMinute + $offset;
+        $endAbs = $endMinute + $offset;
+        if ($nowWeekMinute >= $startAbs && $nowWeekMinute <= $endAbs) return true;
       }
     }
     return false;
