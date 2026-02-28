@@ -13,7 +13,7 @@
         ></iframe>
       </div>
 
-      <script>
+      <script<?php if (!empty($cspNonce)): ?> nonce="<?php echo esc_attr($cspNonce); ?>"<?php endif; ?>>
         (function(){
           const FRAME_ID = <?php echo wp_json_encode($frameId); ?>;
           const SWITCHING_ENABLED = <?php echo wp_json_encode($enabled); ?>;

@@ -10,7 +10,7 @@
         </div>
       </div>
 
-      <script>
+      <script<?php if (!empty($cspNonce)): ?> nonce="<?php echo esc_attr($cspNonce); ?>"<?php endif; ?>>
         (function(){
           const SWITCHING_ENABLED = <?php echo wp_json_encode($enabled); ?>;
           const SHOW_UPCOMING_CHAT = <?php echo wp_json_encode($showUpcoming); ?>;

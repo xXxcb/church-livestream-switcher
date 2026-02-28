@@ -19,6 +19,7 @@ class Church_Livestream_Switcher {
   const LAST_GOOD_GRACE_SECONDS = 300;
   const LAST_GOOD_TRACK_MAX_SECONDS = 21600;
   const SEARCH_FALLBACK_CACHE_TTL_SECONDS = 120;
+  private static $currentCspNonce = null;
 
   // Bootstrap all hooks, shortcodes, and REST wiring for the plugin.
   public static function init() {
@@ -409,6 +410,42 @@ class Church_Livestream_Switcher {
     return $clean;
   }
 
+  // Return a CSP-safe nonce token value.
+  private static function sanitize_csp_nonce($value) {
+    $clean = preg_replace('/[^A-Za-z0-9+\/=_-]/', '', trim((string) $value));
+    return is_string($clean) ? $clean : '';
+  }
+
+  // Return a per-request CSP nonce for inline script tags.
+  public static function current_csp_nonce() {
+    if (is_string(self::$currentCspNonce) && self::$currentCspNonce !== '') {
+      return self::$currentCspNonce;
+    }
+
+    $nonce = '';
+    if (function_exists('wp_get_script_nonce')) {
+      $wpNonce = wp_get_script_nonce();
+      if (is_string($wpNonce) && $wpNonce !== '') {
+        $nonce = $wpNonce;
+      }
+    }
+
+    if ($nonce === '') {
+      try {
+        $nonce = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
+      } catch (Exception $e) {
+        $nonce = wp_generate_password(24, false, false);
+      }
+    }
+
+    $nonce = self::sanitize_csp_nonce($nonce);
+    $filtered = apply_filters('cls_csp_nonce', $nonce);
+    $filtered = self::sanitize_csp_nonce($filtered);
+
+    self::$currentCspNonce = $filtered !== '' ? $filtered : $nonce;
+    return self::$currentCspNonce;
+  }
+
   // Register the settings page under WordPress options.
   public static function admin_menu() {
     add_options_page(
@@ -528,7 +565,12 @@ class Church_Livestream_Switcher {
     $templateFile = trailingslashit(CLS_PLUGIN_DIR) . 'templates/' . ltrim((string) $relativePath, '/');
     if (!file_exists($templateFile)) return '';
 
-    if (is_array($vars) && !empty($vars)) {
+    if (!is_array($vars)) $vars = [];
+    if (!isset($vars['cspNonce'])) {
+      $vars['cspNonce'] = self::current_csp_nonce();
+    }
+
+    if (!empty($vars)) {
       extract($vars, EXTR_SKIP);
     }
 

@@ -686,7 +686,7 @@
       </form>
     </div>
 
-    <script>
+    <script<?php if (!empty($cspNonce)): ?> nonce="<?php echo esc_attr($cspNonce); ?>"<?php endif; ?>>
       (function(){
         const tabLinks = document.querySelectorAll('#cls_settings_tabs .cls-tab-link');
         const tabPanels = document.querySelectorAll('.cls-tab-panel');
